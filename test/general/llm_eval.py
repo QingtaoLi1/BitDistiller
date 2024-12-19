@@ -26,7 +26,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=2, help='evaluation tasks')
     parser.add_argument('--bits', type=int, default=2, help='evaluation tasks')
     parser.add_argument('--group_size', type=int, default=128, help='evaluation tasks')
-    parser.add_argument('--quant_type', type=str, default="int", help='evaluation tasks')
+    parser.add_argument('--quant_type', type=str, default=None, help='evaluation tasks')
     parser.add_argument('--num_fewshot', type=int, default=0, help='evaluation tasks')
     args = parser.parse_args()
     print(args)

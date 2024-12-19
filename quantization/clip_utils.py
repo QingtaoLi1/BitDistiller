@@ -1,12 +1,16 @@
 #TODO Dataset Path
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from transformers.models.llama.modeling_llama import LlamaForCausalLM
+from transformers.models.opt.modeling_opt import OPTForCausalLM
+from transformers.models.bloom.modeling_bloom import BloomForCausalLM
+from transformers.models.phi3.modeling_phi3 import Phi3ForCausalLM
 import torch
 from datasets import load_dataset
 import random
 import json
 import os
 import torch.nn as nn
+
 def get_calib_dataset(datasets="pileval", tokenizer=None, n_samples=128, block_size=1024):
     if datasets == "pile":
         return get_pile_dataset(tokenizer=tokenizer, n_samples=n_samples, block_size=block_size)
@@ -118,6 +122,8 @@ def get_blocks(model):
         layers = model.model.decoder.layers
     elif isinstance(model, BloomForCausalLM):
         layers = model.transformer.h
+    elif isinstance(model, Phi3ForCausalLM):
+        layers = model.model.layers
     elif "mpt" in str(model.__class__).lower():
         layers = model.transformer.blocks
     elif "falcon" in str(model.__class__).lower():
@@ -145,6 +151,8 @@ def move_embed(model, device):
     elif isinstance(model, BloomForCausalLM):
         model.transformer.word_embeddings = model.transformer.word_embeddings.to(device)
         model.transformer.word_embeddings_layernorm = model.transformer.word_embeddings_layernorm.to(device)
+    elif isinstance(model, Phi3ForCausalLM):
+        model.model.embed_tokens = model.model.embed_tokens.to(device)
     elif "mpt" in str(model.__class__).lower():
         model.transformer.wte = model.transformer.wte.to(device)
         model.transformer.emb_drop = model.transformer.emb_drop.to(device)
@@ -178,6 +186,7 @@ def build_model_and_enc(model_path):
 
     # all hf model
     config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
+    print("config: ", config)
 
     enc = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 

@@ -76,4 +76,6 @@ class ARCEasy(MultipleChoiceTask):
 
 class ARCChallenge(ARCEasy):
     # DATASET_PATH = "/root/model/datasets/ai2_arc/ARC-Challenge/1.0.0"
+    VERSION = 0
+    DATASET_PATH = "allenai/ai2_arc"
     DATASET_NAME = "ARC-Challenge"

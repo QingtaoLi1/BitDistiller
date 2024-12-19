@@ -131,7 +131,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', default='meta-llama/Llama-2-7b-hf', type=str) # quant base model
     parser.add_argument('--dev', type=str, default="cuda:0")
-    parser.add_argument('--quant_type', type=str, default="int", help='Quantization data type')
+    parser.add_argument('--quant_type', type=str, default=None, help='Quantization data type')
     parser.add_argument('--bits', type=int, default=3, help='Quantization bits')
     parser.add_argument('--group_size', type=int, default=128, help='Quantization group size')
 
@@ -141,15 +141,16 @@ def main():
 
     print("loading the model...")
     model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16, use_safetensors=True, low_cpu_mem_usage=True)
-
-    q_config = {
-        "zero_point": True,  # by default True
-        "q_group_size": args.group_size,  # whether to use group quantization
-    }
     model = model.cuda()
-    pseudo_quantize_model_weight(
-        model, w_bit=args.bits, q_config=q_config, quant_type=args.quant_type
-    )
+
+    if args.quant_type is not None:
+        q_config = {
+            "zero_point": True,  # by default True
+            "q_group_size": args.group_size,  # whether to use group quantization
+        }
+        pseudo_quantize_model_weight(
+            model, w_bit=args.bits, q_config=q_config, quant_type=args.quant_type
+        )
 
     dev = torch.device(args.dev)
 
