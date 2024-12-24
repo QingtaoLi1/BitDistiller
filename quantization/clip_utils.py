@@ -3,7 +3,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from transformers.models.llama.modeling_llama import LlamaForCausalLM
 from transformers.models.opt.modeling_opt import OPTForCausalLM
 from transformers.models.bloom.modeling_bloom import BloomForCausalLM
-from transformers.models.phi3.modeling_phi3 import Phi3ForCausalLM
+from transformers import __version__ as transformers_version
+if transformers_version == "4.47.0":
+    from transformers.models.phi3.modeling_phi3 import Phi3ForCausalLM
+else:
+    Phi3ForCausalLM = None
 import torch
 from datasets import load_dataset
 import random

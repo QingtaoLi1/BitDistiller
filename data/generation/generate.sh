@@ -4,8 +4,8 @@ OUTPUT=$3
 BATCH_SIZE=$4
 MAX_SAMPLE=$5
 
-# CUDA_VISIBLE_DEVICES=1,2,3,4,5,6,7 \
-torchrun --nproc_per_node 8 --master_port 7830 generate.py \
+CUDA_VISIBLE_DEVICES=4,5,6,7 \
+torchrun --nproc_per_node 4 --master_port 7830 generate.py \
                         --base_model $MODEL_DIR \
                         --dataset_name $DATASET \
                         --out_path $OUTPUT \

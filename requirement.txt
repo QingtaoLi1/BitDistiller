@@ -1,5 +1,5 @@
 transformers==4.31.0
-torch==2.1.0+cu121
+# torch==2.1.0+cu121
 datasets==2.21.0
 deepspeed==0.16.2
 sentencepiece
@@ -23,3 +23,4 @@ zstandard
 bitsandbytes
 peft==0.5.0
 fraction
+# numpy==1.26.4

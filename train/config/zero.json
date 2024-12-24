@@ -35,6 +35,9 @@
         "reduce_bucket_size": 5e8,
         "contiguous_gradients": true
     },
+    "data_types": {
+        "grad_accum_dtype": "fp32"
+    },
 
 
     "gradient_accumulation_steps": "auto",
