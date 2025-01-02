@@ -10,7 +10,8 @@ torchrun --nproc_per_node 4 --master_port 7830 generate.py \
                         --dataset_name $DATASET \
                         --out_path $OUTPUT \
                         --batch_size $BATCH_SIZE \
-                        --max_sample $MAX_SAMPLE
+                        --max_sample $MAX_SAMPLE \
+                        --max_new_tokens 2048
 
 # Single Generate
 # CUDA_VISIBLE_DEVICES=0 /root/model/miniconda3/envs/qat/bin/torchrun single_generate.py \
