@@ -4,7 +4,8 @@ from transformers.models.llama.modeling_llama import LlamaForCausalLM
 from transformers.models.opt.modeling_opt import OPTForCausalLM
 from transformers.models.bloom.modeling_bloom import BloomForCausalLM
 from transformers import __version__ as transformers_version
-if transformers_version == "4.47.0":
+from packaging import version
+if version.parse(transformers_version) >= version.parse("4.41.0"):
     from transformers.models.phi3.modeling_phi3 import Phi3ForCausalLM
 else:
     Phi3ForCausalLM = None
