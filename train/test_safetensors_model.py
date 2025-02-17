@@ -1,12 +1,13 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from safetensors.torch import load_file
 import torch
+import os
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 
-model_dir = "/mnt/sdb1/qingtaoli/Llama-2-7b-bitdistiller/checkpoint-1000/"
-safetensor_file = "/mnt/sdb1/qingtaoli/Llama-2-7b-bitdistiller/checkpoint-1000/model.safetensors"
+model_dir = "/mnt/sdb1/qingtaoli/Phi-3-mini-4k-instruct-bitdistiller-wiki3kalpaca5k_ctx2048/checkpoint-1000/fp16/"
+safetensor_file = os.path.join(model_dir, "model.safetensors")
 config = AutoConfig.from_pretrained(model_dir)
 print(f"Model config:\n{config}")
 tokenizer = AutoTokenizer.from_pretrained(model_dir)
@@ -23,10 +24,10 @@ with torch.no_grad():
     outputs = model.generate(
         **inputs,
         max_length=50,
-        # do_sample=True,  # Enable sampling for more diverse outputs
+        do_sample=True,  # Enable sampling for more diverse outputs
         # top_k=50,        # Limit sampling to the top-k tokens
         # top_p=0.95,      # Use nucleus sampling
-        # temperature=0.7, # Control randomness
+        temperature=0.7, # Control randomness
     )
 generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
 print(f"Generated text: {generated_text}")

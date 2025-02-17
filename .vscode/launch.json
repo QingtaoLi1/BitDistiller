@@ -1,0 +1,71 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: Train",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "deepspeed.launcher.launch",
+            "cwd": "train",
+            "justMyCode": false,
+            "args": [
+                "--world_info=eyJsb2NhbGhvc3QiOiBbMCwgMSwgMiwgMywgNCwgNSwgNiwgN119",
+                "--master_addr=127.0.0.1",
+                "--master_port=29500",
+                "--enable_each_rank_log=None",
+                "train.py",
+                "--model_name_or_path=/home/superbench/qingtaoli/models/Phi-3-mini-4k-instruct/",
+                "--data_path=/home/superbench/qingtaoli/data/wikitext-2-generated/mix_wiki_alpaca_8000.json",
+                "--model_max_length=1024",
+                "--output_dir=/mnt/sdb1/qingtaoli/Phi-3-mini-4k-instruct-bitdistiller-gpu8/",
+                "--logging_dir=/home/superbench/qingtaoli/models/Phi-3-mini-4k-instruct-log/",
+                "--num_train_epochs=4",
+                "--bf16=True",
+                "--seed=42",
+                "--per_device_train_batch_size=16",
+                "--per_device_eval_batch_size=16",
+                "--gradient_accumulation_steps=1",
+                "--gradient_checkpointing=True",
+                "--evaluation_strategy=steps",
+                "--eval_steps=20",
+                "--load_best_model_at_end=True",
+                "--save_strategy=steps",
+                "--save_steps=20",
+                "--save_total_limit=15",
+                "--learning_rate=8e-6",
+                "--lr_scheduler_type=constant",
+                "--weight_decay=0.",
+                "--logging_steps=1",
+                "--report_to=tensorboard",
+                "--deepspeed=config/zero.json",
+                "--bits=2",
+                "--quant_type=int2-asym",
+                "--q_group_size=64",
+                "--train_kd=True",
+                "--kd_loss_type=cakld",
+                "--max_train_samples=999999",
+                "--clip=/home/superbench/qingtaoli/BitDistiller/quantization/clip_cache/Phi-3-mini-4k-instruct/int2-g64.pt"
+            ]
+        },
+        {
+            "name": "Python Debugger: autoclip",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "quantization/autoclip.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--model_path=/home/superbench/qingtaoli/models/Phi-3-mini-4k-instruct/",
+                "--calib_dataset=pile",
+                "--quant_type=int",
+                "--w_bit=2",
+                "--q_group_size=64",
+                "--run_clip",
+                "--dump_clip=./quantization/clip_cache/hf-phi-3-mini-4k-instruct/int2-g64.pt"
+            ]
+        }
+    ]
+}

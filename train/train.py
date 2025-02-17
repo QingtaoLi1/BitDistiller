@@ -356,7 +356,7 @@ def train():
         print("Get the main Prob!")
         probDataloader = DataLoader(
             data_module['train_dataset'], 
-            shuffle=True, 
+            shuffle=False, 
             collate_fn=data_module['data_collator'], 
             batch_size=training_args.per_device_train_batch_size,
             drop_last=True,
