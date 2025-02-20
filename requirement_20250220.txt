@@ -1,0 +1,30 @@
+# !!transformers and accelerate should match!!
+# transformers==4.47.0 // accelerate==1.2.0 (may remember wrong?)
+# transformers==4.37.0 // accelerate==0.28.0
+# transformers>=4.46.0 have a conflict with mytrainer in func compute_loss()
+# vllm==0.6.4 is the oldest version that matches torch==2.5.1
+
+
+## This environment succeeds in Llama-2-7B-hf.
+vllm==0.6.4
+transformers==4.45.2
+deepspeed==0.16.3
+accelerate==1.2.0
+peft==0.5.0
+numpy==1.26.4
+
+# Below: not specific now, use the latest on 20250220.
+tensorboardX==2.6.2.2
+importlib-resources==6.5.2
+jsonlines==4.0.0
+numexpr==2.10.2
+omegaconf==2.3.0
+rouge-score==0.1.2
+sacrebleu==2.5.1
+scikit-learn==1.6.1
+sqlitedict==2.1.0
+tqdm-multiprocess==0.0.11
+zstandard==0.23.0
+bitsandbytes==0.45.2
+fraction==2.2.0
+
