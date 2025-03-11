@@ -260,6 +260,8 @@ def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer, dat
 
 
 def train():
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
     parser = transformers.HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
@@ -283,6 +285,7 @@ def train():
         model_args.model_name_or_path,
         torch_dtype=torch.bfloat16,
         device_map=device_map,
+        attn_implementation="flash_attention_2",
     )
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
@@ -326,6 +329,7 @@ def train():
         clip_results = torch.load(training_args.clip)
         apply_clip(model, clip_results)
         print("Clipping init successfully!")
+    model.config.use_cache = False
 
     if training_args.train_kd:
         print("loading Teacher Model...")
@@ -336,6 +340,7 @@ def train():
             torch_dtype=torch.bfloat16,
             device_map=device_map,
             max_memory=max_memory,
+            attn_implementation="flash_attention_2",
         )
         teacher_model.eval()
         teacher_model.cuda()
@@ -356,7 +361,7 @@ def train():
         print("Get the main Prob!")
         probDataloader = DataLoader(
             data_module['train_dataset'], 
-            shuffle=False, 
+            shuffle=True, 
             collate_fn=data_module['data_collator'], 
             batch_size=training_args.per_device_train_batch_size,
             drop_last=True,

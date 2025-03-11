@@ -142,6 +142,7 @@ def run_clip(
     # patch layer 0 to catch input and kwargs
     layers[0] = Catcher(layers[0])
     try:
+        model = model.cuda()
         model(samples.to(next(model.parameters()).device))
     except ValueError:  # work with early exit
         pass

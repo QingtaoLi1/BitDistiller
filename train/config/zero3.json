@@ -33,9 +33,7 @@
         "stage3_max_reuse_distance": 1e9,
         "stage3_gather_16bit_weights_on_model_save": true
     },
-    "data_types": {
-        "grad_accum_dtype": "fp32"
-    },
+
     
     "gradient_accumulation_steps": "auto",
     "gradient_clipping": "auto",
