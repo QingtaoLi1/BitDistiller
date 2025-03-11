@@ -21,6 +21,7 @@ scikit-learn==1.6.1
 sqlitedict==2.1.0
 tqdm-multiprocess==0.0.11
 zstandard==0.23.0
-bitsandbytes==0.45.2
+# bitsandbytes==0.45.2
 fraction==2.2.0
 pycountry==24.6.1
+fsspec==2024.6.1
