@@ -19,7 +19,7 @@ export NCCL_SOCKET_IFNAME="lo"
 export WANDB_DISABLED=true  
 
 # CUDA_VISIBLE_DEVICES=0 python \
-deepspeed --include localhost:0,1,2,3 \
+deepspeed --hostfile=hostfile --include localhost:0,1,2,3 \
 train.py \
     --model_name_or_path $MODEL_PATH \
     --data_path $DATA_PATH \
@@ -29,9 +29,9 @@ train.py \
     --num_train_epochs 10 \
     --bf16 True \
     --seed 42 \
-    --per_device_train_batch_size 8 \
-    --per_device_eval_batch_size 16 \
-    --gradient_accumulation_steps 1 \
+    --per_device_train_batch_size 2 \
+    --per_device_eval_batch_size 2 \
+    --gradient_accumulation_steps 4 \
     --gradient_checkpointing True \
     --evaluation_strategy "steps" \
     --eval_steps 100 \

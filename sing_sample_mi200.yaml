@@ -1,0 +1,65 @@
+description: Simple Amulet job on Singularity
+
+target:
+  service: sing
+  name: msrresrchbasicvc
+  workspace_name: dca-singularity
+
+environment:
+  # image: rocm6.2.2_ubuntu22.04_py3.10_pytorch_2.5.1_asan:latest
+  # registry: 01e79f22d35f40c7a39622ee862e3deb.azurecr.io/samples
+  image: amlt-sing/acpt-rocm6.1_ubuntu20.04_py3.9_pytorch2.1.2
+  setup:
+    - pwd
+    - python -m venv mybd
+    - source mybd/bin/activate
+    - ls -l
+    - python -m pip install --upgrade pip setuptools
+    - python -m pip install packaging wheel ninja
+    - python -m pip install --upgrade packaging wheel ninja
+    - python -m pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/rocm6.1
+    - cd /mnt/external
+    - nohup python keep.py --gpus=8 >/dev/null 2>&1 &
+    - MAX_JOBS=16 python -m pip install flash-attn --no-build-isolation -v
+    - python -m pip install -r ./requirement_20250228_flashattn.txt
+
+storage:
+  input:
+    storage_account_name: dcasingularity4556773921
+    container_name: qingtaoli
+    mount_dir: /mnt/input
+  output:
+    storage_account_name: dcasingularity4556773921
+    container_name: qingtaoli
+    mount_dir: /mnt/output
+  external:
+    storage_account_name: dcasingularity4556773921
+    container_name: qingtaoli
+    mount_dir: /mnt/external
+
+code:
+  # local directory of the code. this will be uploaded to the server.
+  # $CONFIG_DIR is expanded to the directory of this config file
+  local_dir: /home/qingtaoli/BitDistiller/
+
+data:
+  storage_id: external
+
+
+jobs:
+- name: mi200_test
+  sku: NDMI200v4:G8
+  identity: managed
+  submit_args:
+    env:
+      _AZUREML_SINGULARITY_JOB_UAI: "/subscriptions/656a79af-6a27-4924-ad92-9221860e3bba/resourceGroups/dca-core/providers/Microsoft.ManagedIdentity/userAssignedIdentities/dca-core-identity"
+  command:
+    - cd train
+    - chmod +x ./train.sh
+    - ./train.sh /mnt/external/models/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B/ /mnt/external/checkpoints/DeepSeek-R1-Distill-Qwen-14B/alpaca5kwiki3k_ctx4096/ /mnt/external/data/generation/DeepSeek-R1-Distill-Qwen-14B-ctx4096/wiki-alpaca/mix_alpaca_wikitext_8000.json /mnt/external/checkpoints/DeepSeek-R1-Distill-Qwen-14B/alpaca5kwiki3k_ctx4096/logs/ /mnt/external/data/clip_cache/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B/int2-g64.pt 4096
+    # - cd /mnt/external
+    # - nohup python keep.py --gpus=8 >/dev/null 2>&1 &
+    - sleep 1000000
+  tags: ["Debug:True"]
+  priority: High
+  azml_int: True
