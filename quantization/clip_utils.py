@@ -8,7 +8,12 @@ from packaging import version
 if version.parse(transformers_version) >= version.parse("4.41.0"):
     from transformers.models.phi3.modeling_phi3 import Phi3ForCausalLM
 else:
-    Phi3ForCausalLM = None
+    # a random but not model type
+    Phi3ForCausalLM = int
+if version.parse(transformers_version) >= version.parse("4.37.0"):
+    from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
+else:
+    Qwen2ForCausalLM = int
 import torch
 from datasets import load_dataset
 import random
@@ -129,6 +134,8 @@ def get_blocks(model):
         layers = model.transformer.h
     elif isinstance(model, Phi3ForCausalLM):
         layers = model.model.layers
+    elif isinstance(model, Qwen2ForCausalLM):
+        layers = model.model.layers
     elif "mpt" in str(model.__class__).lower():
         layers = model.transformer.blocks
     elif "falcon" in str(model.__class__).lower():
@@ -157,6 +164,8 @@ def move_embed(model, device):
         model.transformer.word_embeddings = model.transformer.word_embeddings.to(device)
         model.transformer.word_embeddings_layernorm = model.transformer.word_embeddings_layernorm.to(device)
     elif isinstance(model, Phi3ForCausalLM):
+        model.model.embed_tokens = model.model.embed_tokens.to(device)
+    elif isinstance(model, Qwen2ForCausalLM):
         model.model.embed_tokens = model.model.embed_tokens.to(device)
     elif "mpt" in str(model.__class__).lower():
         model.transformer.wte = model.transformer.wte.to(device)

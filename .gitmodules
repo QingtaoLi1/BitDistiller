@@ -1,0 +1,11 @@
+[submodule "test/3rdparty/gpqa"]
+	path = test/3rdparty/gpqa
+	url = https://github.com/QingtaoLi1/gpqa.git
+	branch = exp
+[submodule "test/3rdparty/MATH-500"]
+	path = test/3rdparty/MATH-500
+	url = https://github.com/QingtaoLi1/MATH-500-subset-qwen2-answers-evaluated-by-open-PRM.git
+	branch = exp
+[submodule "test/3rdparty/open-r1"]
+	path = test/3rdparty/open-r1
+	url = https://github.com/QingtaoLi1/open-r1.git
