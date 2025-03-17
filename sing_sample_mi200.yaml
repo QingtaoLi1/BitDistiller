@@ -6,22 +6,41 @@ target:
   workspace_name: dca-singularity
 
 environment:
-  # image: rocm6.2.2_ubuntu22.04_py3.10_pytorch_2.5.1_asan:latest
-  # registry: 01e79f22d35f40c7a39622ee862e3deb.azurecr.io/samples
   image: amlt-sing/acpt-rocm6.1_ubuntu20.04_py3.9_pytorch2.1.2
   setup:
     - pwd
+    - sudo apt-get install -y vim
     - python -m venv mybd
     - source mybd/bin/activate
     - ls -l
     - python -m pip install --upgrade pip setuptools
     - python -m pip install packaging wheel ninja
     - python -m pip install --upgrade packaging wheel ninja
+
+    # bitsandbytes HIP bug
+    # - line=major, minor = map(int, torch.version.cuda.split("."))
+    # - pip install --force-reinstall 'https://github.com/bitsandbytes-foundation/bitsandbytes/releases/download/continuous-release_multi-backend-refactor/bitsandbytes-0.45.3.dev272-py3-none-manylinux_2_24_x86_64.whl'
+    
     - python -m pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/rocm6.1
     - cd /mnt/external
     - nohup python keep.py --gpus=8 >/dev/null 2>&1 &
-    - MAX_JOBS=16 python -m pip install flash-attn --no-build-isolation -v
+    # - MAX_JOBS=16 python -m pip install flash-attn --no-build-isolation -v
+    - cd /scratch/amlt_code
     - python -m pip install -r ./requirement_20250228_flashattn.txt
+
+    # Copy prebuilt flash-attn
+    - cp -r /mnt/external/flash_attn/lib/* ../mybd/lib/python3.9/site-packages/
+    - cp -r /mnt/external/flash_attn/lib64/* ../mybd/lib64/python3.9/site-packages/
+
+    # GLIBCXX_3.4.32
+    # - sudo apt install --reinstall software-properties-common
+    # - sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
+    # - sudo apt-get update
+    # - sudo apt-get install --only-upgrade libstdc++6
+    # - strings /usr/lib/x86_64-linux-gnu/libstdc++.so.6 | grep GLIBCXX
+    # - cp /usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.32 /opt/conda/envs/ptca/lib
+    # - ln -vfns /opt/conda/envs/ptca/lib/libstdc++.so.6.0.32 /opt/conda/envs/ptca/lib/libstdc++.so
+    # - ln -vfns /opt/conda/envs/ptca/lib/libstdc++.so.6.0.32 /opt/conda/envs/ptca/lib/libstdc++.so.6
 
 storage:
   input:

@@ -297,6 +297,7 @@ def train():
             model_args.model_name_or_path,
             torch_dtype=torch.bfloat16,
             device_map=device_map,
+            attn_implementation='eager',
         )
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
@@ -362,6 +363,7 @@ def train():
                 torch_dtype=torch.bfloat16,
                 device_map=device_map,
                 max_memory=max_memory,
+                attn_implementation='eager',
             )
         teacher_model.eval()
         teacher_model.cuda()
