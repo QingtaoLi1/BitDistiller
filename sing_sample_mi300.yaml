@@ -31,8 +31,8 @@ environment:
     - python -m pip install -r ./requirement_20250228_flashattn.txt
 
     # Copy prebuilt flash-attn
-    - cp -r /mnt/external/flash_attn/lib/* ../mybd/lib/python3.9/site-packages/
-    - cp -r /mnt/external/flash_attn/lib64/* ../mybd/lib64/python3.9/site-packages/
+    # - cp -r /mnt/external/flash_attn/lib/* ../mybd/lib/python3.9/site-packages/
+    # - cp -r /mnt/external/flash_attn/lib64/* ../mybd/lib64/python3.9/site-packages/
 
     # GLIBCXX_3.4.32
     # - sudo apt install --reinstall software-properties-common
@@ -76,10 +76,10 @@ jobs:
       _AZUREML_SINGULARITY_JOB_UAI: "/subscriptions/656a79af-6a27-4924-ad92-9221860e3bba/resourceGroups/dca-core/providers/Microsoft.ManagedIdentity/userAssignedIdentities/dca-core-identity"
   command:
     - cd train
-    - chmod +x ./train.sh
+    - chmod +x ./train*.sh
     - export NCCL_ENABLE_DMABUF_SUPPORT=1
     # - ./train.sh /mnt/external/models/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B/ /mnt/external/checkpoints/DeepSeek-R1-Distill-Qwen-14B/alpaca5kwiki3k_ctx4096/ /mnt/external/data/generation/DeepSeek-R1-Distill-Qwen-14B-ctx4096/wiki-alpaca/mix_alpaca_wikitext_8000.json /mnt/external/checkpoints/DeepSeek-R1-Distill-Qwen-14B/alpaca5kwiki3k_ctx4096/logs/ /mnt/external/data/clip_cache/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B/int2-g64.pt 4096
-    - ./train.sh /mnt/external/models/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B/ /mnt/external/checkpoints/DeepSeek-R1-Distill-Qwen-7B/alpaca5kwiki3k_ctx4096/ /mnt/external/data/generation/DeepSeek-R1-Distill-Qwen-7B-ctx4096/wiki-alpaca/mix_alpaca_wikitext_8000.json /mnt/external/checkpoints/DeepSeek-R1-Distill-Qwen-7B/alpaca5kwiki3k_ctx4096/logs/ /mnt/external/data/clip_cache/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B/int2-g64.pt 4096
+    - ./train_8gpu_7b.sh /mnt/external/models/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B/ /mnt/external/checkpoints/DeepSeek-R1-Distill-Qwen-7B/openr1_math220k_default_ctx4096/ /mnt/external/data/OpenR1-Math-220k/default.json /mnt/external/checkpoints/DeepSeek-R1-Distill-Qwen-7B/openr1_math220k_default_ctx4096/logs/ /mnt/external/data/clip_cache/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B/int2-g64.pt 4096
     # - cd /mnt/external
     # - nohup python keep.py --gpus=8 >/dev/null 2>&1 &
     - sleep 1000000
