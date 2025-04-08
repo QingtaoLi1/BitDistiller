@@ -196,7 +196,7 @@ class SupervisedDataset(Dataset):
         else:
             self.sources, self.targets = sources, targets 
                  
-        split_num = len(self.sources) // 5
+        split_num = len(self.sources) // 10
         if split == "train":
             self.sources, self.targets = self.sources[split_num:], self.targets[split_num:]
             print(f"Using {len(self.sources)} samples to train")
