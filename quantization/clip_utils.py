@@ -14,6 +14,10 @@ if version.parse(transformers_version) >= version.parse("4.37.0"):
     from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
 else:
     Qwen2ForCausalLM = int
+if version.parse(transformers_version) >= version.parse("4.50.0"):
+    from transformers.models.gemma3.modeling_gemma3 import Gemma3ForConditionalGeneration
+else:
+    Gemma3ForConditionalGeneration = int
 import torch
 from datasets import load_dataset
 import random
@@ -136,6 +140,8 @@ def get_blocks(model):
         layers = model.model.layers
     elif isinstance(model, Qwen2ForCausalLM):
         layers = model.model.layers
+    elif isinstance(model, Gemma3ForConditionalGeneration):
+        layers = model.language_model.model.layers
     elif "mpt" in str(model.__class__).lower():
         layers = model.transformer.blocks
     elif "falcon" in str(model.__class__).lower():
@@ -167,6 +173,8 @@ def move_embed(model, device):
         model.model.embed_tokens = model.model.embed_tokens.to(device)
     elif isinstance(model, Qwen2ForCausalLM):
         model.model.embed_tokens = model.model.embed_tokens.to(device)
+    elif isinstance(model, Gemma3ForConditionalGeneration):
+        model.language_model.model.embed_tokens = model.language_model.model.embed_tokens.to(device)
     elif "mpt" in str(model.__class__).lower():
         model.transformer.wte = model.transformer.wte.to(device)
         model.transformer.emb_drop = model.transformer.emb_drop.to(device)
@@ -194,8 +202,8 @@ def get_op_name(module, op):
 
 
 def build_model_and_enc(model_path):
-    if not os.path.exists(model_path):  # look into ssd
-        raise FileNotFoundError(f"{model_path} not found!")
+    # if not os.path.exists(model_path):  # look into ssd
+    #     raise FileNotFoundError(f"{model_path} not found!")
     print(f"* Building model {model_path}")
 
     # all hf model

@@ -29,9 +29,9 @@ train.py \
     --num_train_epochs 10 \
     --bf16 True \
     --seed 42 \
-    --per_device_train_batch_size 4 \
-    --per_device_eval_batch_size 4 \
-    --gradient_accumulation_steps 1 \
+    --per_device_train_batch_size 2 \
+    --per_device_eval_batch_size 2 \
+    --gradient_accumulation_steps 2 \
     --gradient_checkpointing True \
     --evaluation_strategy "steps" \
     --eval_steps 400 \
@@ -48,7 +48,7 @@ train.py \
     --bits 2 \
     --quant_type int2-asym \
     --q_group_size 64 \
-    --train_kd True \
-    --kd_loss_type "cakld" \
+    --train_kd False \
+    --kd_loss_type "none" \
     --max_train_samples 999999 \
     --clip $CLIP_PATH

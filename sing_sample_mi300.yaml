@@ -9,6 +9,7 @@ environment:
   image: amlt-sing/acpt-rocm6.1_ubuntu20.04_py3.9_pytorch2.1.2
   setup:
     - pwd
+    - sudo apt-get update
     - sudo apt-get install -y vim
     # - sudo apt-get install apt-utils
     # - sudo apt-get install -y rocm-dkms hsa-rocr-asan
@@ -29,6 +30,8 @@ environment:
     # - MAX_JOBS=16 python -m pip install flash-attn --no-build-isolation -v
     - cd /scratch/amlt_code
     - python -m pip install -r ./requirement_20250228_flashattn.txt
+
+    - echo -e "alias ll='ls -al'" >> ~/.bashrc
 
     # Copy prebuilt flash-attn
     # - cp -r /mnt/external/flash_attn/lib/* ./mybd/lib/python3.9/site-packages/

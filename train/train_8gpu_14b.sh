@@ -34,11 +34,11 @@ train.py \
     --gradient_accumulation_steps 2 \
     --gradient_checkpointing True \
     --evaluation_strategy "steps" \
-    --eval_steps 100 \
+    --eval_steps 400 \
     --load_best_model_at_end True \
     --save_strategy "steps" \
-    --save_steps 100 \
-    --save_total_limit 30 \
+    --save_steps 400 \
+    --save_total_limit 300 \
     --learning_rate 8e-6 \
     --lr_scheduler_type "constant" \
     --weight_decay 0. \

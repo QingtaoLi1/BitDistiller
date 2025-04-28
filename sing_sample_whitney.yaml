@@ -2,13 +2,14 @@ description: Simple Amulet job on Singularity
 
 target:
   service: sing
-  name: whitney13
+  name: whitney08
   workspace_name: dca-singularity
 
 environment:
   image: amlt-sing/acpt-rocm6.1_ubuntu20.04_py3.9_pytorch2.1.2
   setup:
     - pwd
+    - sudo apt-get update
     - sudo apt-get install -y vim
     # - sudo apt-get install apt-utils
     # - sudo apt-get install -y rocm-dkms hsa-rocr-asan
@@ -31,9 +32,11 @@ environment:
     - python -m pip install -r ./requirement_20250228_flashattn.txt
 
     # Copy prebuilt flash-attn
-    - python -m pip install flash-attn==2.7.4.post1
+    - python -m pip install flash-attn==2.7.4.post1 --no-build-isolation
     # - cp -r /mnt/external/flash_attn/lib/* ./mybd/lib/python3.9/site-packages/
     # - cp -r /mnt/external/flash_attn/lib64/* ./mybd/lib64/python3.9/site-packages/
+
+    - echo -e "alias ll='ls -al'" >> ~/.bashrc
 
     # GLIBCXX_3.4.32
     # - sudo apt install --reinstall software-properties-common
@@ -69,7 +72,7 @@ data:
 
 
 jobs:
-- name: whitney_test
+- name: bd_14B_R1_data
   sku: NDMI300Xv5:G8
   identity: managed
   submit_args:
@@ -77,12 +80,12 @@ jobs:
       _AZUREML_SINGULARITY_JOB_UAI: "/subscriptions/656a79af-6a27-4924-ad92-9221860e3bba/resourceGroups/dca-core/providers/Microsoft.ManagedIdentity/userAssignedIdentities/dca-core-identity"
   command:
     - cd train
-    - chmod +x ./train.sh
+    - chmod +x ./train_8gpu_14b.sh
     - export NCCL_DEBUG=WARN
     # - ./train_8gpu_14b.sh /mnt/external/models/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B/ /mnt/external/checkpoints/DeepSeek-R1-Distill-Qwen-14B/alpaca5kwiki3k_ctx4096/ /mnt/external/data/generation/DeepSeek-R1-Distill-Qwen-14B-ctx4096/wiki-alpaca/mix_alpaca_wikitext_8000.json /mnt/external/checkpoints/DeepSeek-R1-Distill-Qwen-14B/alpaca5kwiki3k_ctx4096/logs/ /mnt/external/data/clip_cache/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B/int2-g64.pt 4096
-    # - ./train_8gpu_14b.sh /mnt/external/models/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B/ /mnt/external/checkpoints/DeepSeek-R1-Distill-Qwen-14B/openr1_math220k_default_ctx4096/ /mnt/external/data/OpenR1-Math-220k/default.json /mnt/external/checkpoints/DeepSeek-R1-Distill-Qwen-14B/openr1_math220k_default_ctx4096/logs/ /mnt/external/data/clip_cache/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B/int2-g64.pt 4096
+    - ./train_8gpu_14b.sh /mnt/external/models/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B/ /mnt/external/checkpoints/DeepSeek-R1-Distill-Qwen-14B_teacher_gen/20250428_openr1_math220k_default_ctx32k/ /mnt/external/data/teacher_gen/Qwen-14B/default.json /mnt/external/checkpoints/DeepSeek-R1-Distill-Qwen-14B_teacher_gen/20250428_openr1_math220k_default_ctx32k/logs/ /mnt/external/data/clip_cache/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B/int2-g64.pt 32768
     # - cd /mnt/external
-    # - nohup python keep.py --gpus=8 >/dev/null 2>&1 &
+    - nohup python keep.py --gpus=8 >/dev/null 2>&1 &
     - sleep 100000000
   tags: ["Debug:True"]
   priority: High
