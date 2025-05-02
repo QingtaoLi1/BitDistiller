@@ -18,6 +18,10 @@ if version.parse(transformers_version) >= version.parse("4.50.0"):
     from transformers.models.gemma3.modeling_gemma3 import Gemma3ForConditionalGeneration
 else:
     Gemma3ForConditionalGeneration = int
+if version.parse(transformers_version) >= version.parse("4.51.0"):
+    from transformers.models.qwen3.modeling_qwen3 import Qwen3ForCausalLM
+else:
+    Qwen3ForCausalLM = int
 import torch
 from datasets import load_dataset
 import random
@@ -140,6 +144,8 @@ def get_blocks(model):
         layers = model.model.layers
     elif isinstance(model, Qwen2ForCausalLM):
         layers = model.model.layers
+    elif isinstance(model, Qwen3ForCausalLM):
+        layers = model.model.layers
     elif isinstance(model, Gemma3ForConditionalGeneration):
         layers = model.language_model.model.layers
     elif "mpt" in str(model.__class__).lower():
@@ -172,6 +178,8 @@ def move_embed(model, device):
     elif isinstance(model, Phi3ForCausalLM):
         model.model.embed_tokens = model.model.embed_tokens.to(device)
     elif isinstance(model, Qwen2ForCausalLM):
+        model.model.embed_tokens = model.model.embed_tokens.to(device)
+    elif isinstance(model, Qwen3ForCausalLM):
         model.model.embed_tokens = model.model.embed_tokens.to(device)
     elif isinstance(model, Gemma3ForConditionalGeneration):
         model.language_model.model.embed_tokens = model.language_model.model.embed_tokens.to(device)

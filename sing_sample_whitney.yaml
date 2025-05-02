@@ -72,7 +72,7 @@ data:
 
 
 jobs:
-- name: bd_14B_R1_data
+- name: bd_14B_teacher_data
   sku: NDMI300Xv5:G8
   identity: managed
   submit_args:

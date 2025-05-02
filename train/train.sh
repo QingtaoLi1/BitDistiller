@@ -33,7 +33,7 @@ train.py \
     --per_device_eval_batch_size 2 \
     --gradient_accumulation_steps 4 \
     --gradient_checkpointing True \
-    --evaluation_strategy "steps" \
+    --eval_strategy "steps" \
     --eval_steps 100 \
     --load_best_model_at_end True \
     --save_strategy "steps" \

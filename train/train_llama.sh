@@ -19,7 +19,7 @@ deepspeed --include localhost:4,5,6,7 train.py \
     --per_device_eval_batch_size 16 \
     --gradient_accumulation_steps 1 \
     --gradient_checkpointing True \
-    --evaluation_strategy "steps" \
+    --eval_strategy "steps" \
     --eval_steps 25 \
     --load_best_model_at_end True \
     --save_strategy "steps" \
