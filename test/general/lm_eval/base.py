@@ -536,13 +536,24 @@ class Task(abc.ABC):
             - `datasets.DownloadMode.FORCE_REDOWNLOAD`
                 Fresh download and fresh dataset.
         """
-        self.dataset = datasets.load_dataset(
-            path=self.DATASET_PATH,
-            name=self.DATASET_NAME,
-            data_dir=data_dir,
-            cache_dir=cache_dir,
-            download_mode=download_mode,
-        )
+        import time
+        succees = False
+        print(self.DATASET_NAME)
+        while not succees:
+            try:
+                self.dataset = datasets.load_dataset(
+                    path=self.DATASET_PATH,
+                    name=self.DATASET_NAME,
+                    data_dir=data_dir,
+                    cache_dir=cache_dir,
+                    download_mode=download_mode,
+                    trust_remote_code=True,
+                )
+                succees = True
+            except Exception as e:
+                print(e)
+                time.sleep(5)
+            
 
     def should_decontaminate(self):
         """Whether this task supports decontamination against model training set."""
