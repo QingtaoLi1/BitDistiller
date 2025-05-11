@@ -33,12 +33,15 @@ if __name__ == '__main__':
     if "hendrycksTest" not in args.eval_tasks:
         args.test_set = True
     
-    
-    model = AutoModelForCausalLM.from_pretrained(args.model, 
-                                                torch_dtype=torch.bfloat16, 
-                                                use_safetensors=True,
-                                                device_map='auto'
-                                                )
+    ### For normal models
+    # model = AutoModelForCausalLM.from_pretrained(args.model, 
+    #                                             torch_dtype=torch.bfloat16, 
+    #                                             use_safetensors=True,
+    #                                             device_map='cuda:0',
+    #                                             )
+    ### For GPTQ models
+    from gptqmodel import GPTQModel
+    model = GPTQModel.from_quantized(args.model, device="cuda:0", trust_remote_code=True)
         
     if args.quant_type is not None:
         q_config = {
@@ -52,6 +55,12 @@ if __name__ == '__main__':
     tokenizer = AutoTokenizer.from_pretrained(args.model)
 
     model.eval()
+
+    prompt = "Once upon a time"
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    outputs = model.generate(**inputs, max_new_tokens=50)
+    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    print(response)
 
     task_names = utils.pattern_match(args.eval_tasks.split(","), tasks.ALL_TASKS)
 
