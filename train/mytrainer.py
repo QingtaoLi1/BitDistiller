@@ -34,9 +34,16 @@ class KDTrainer(Trainer):
         self.loss_type = loss_type
         self.mean_prob = mean_prob
         self.ce_loss_none = CrossEntropyLoss(reduction="none")
+        ### self.topk = 256
 
+    ### def cakld_loss(self, labels, origin_student_logits, origin_teacher_logits, beta_prob):
     def cakld_loss(self, labels, student_logits, teacher_logits, beta_prob):
         mask = (labels != -100)
+
+        ### teacher_logits, topk_indices = torch.topk(origin_teacher_logits, self.topk, dim=2)
+        ### student_logits = torch.gather(origin_student_logits, 2, topk_indices)
+        ### del origin_teacher_logits
+        ### del origin_student_logits
 
         # reverse
         teacher_output_log_prob = F.log_softmax(teacher_logits, dim=2)
@@ -44,12 +51,14 @@ class KDTrainer(Trainer):
         student_output_soft = F.softmax(student_logits, dim=2)
         # Calculate the reverse KL Divergence (KL(teacher_logits || student_logits))
         reverse_kl = F.kl_div(teacher_output_log_prob, student_output_soft, reduction="none").sum(-1)
+        ### del teacher_output_log_prob
 
         # forward
         student_output_log_prob = F.log_softmax(student_logits, dim=2)
         teacher_output_soft = F.softmax(teacher_logits, dim=2)
         # Calculate the reverse KL Divergence (KL(teacher_logits || student_logits))
         forward_kl = F.kl_div(student_output_log_prob, teacher_output_soft, reduction="none").sum(-1)
+        ### del teacher_output_soft
 
         kl_loss = beta_prob * reverse_kl + (1 - beta_prob) * forward_kl
         kl_loss *= mask
