@@ -3,7 +3,7 @@ import os
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # MODEL_PATH = "/mnt/external/checkpoints/meta-llama/Llama-3.1-8B-Instruct/alpaca5kwiki3k_ctx4096_MI300/checkpoint-1000/"
-MODEL_PATH = "/datadisk/checkpoints/Meta-Llama-3.1-8B-Instruct/alpaca5kwiki3k_ctx4096/checkpoint-400/"
+MODEL_PATH = "/datadisk/checkpoints/Qwen/Qwen3-8B/alpaca5kwiki3k_ctx4096/checkpoint-800/"
 SAVE_PATH = os.path.join(MODEL_PATH, "gptqmodel")
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True, use_fast=True)
