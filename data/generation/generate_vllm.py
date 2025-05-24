@@ -12,9 +12,13 @@ def main(args):
     n_gpus = torch.cuda.device_count()
     print(f"using {n_gpus} GPUs to generate")
 
-    model = LLM(model=args.base_model, tensor_parallel_size=n_gpus)
+    try:
+        model = LLM(model=args.base_model, tensor_parallel_size=n_gpus)
+    except Exception:
+        # Phi-4 should use pipeline-parallel_size=2 for total_num_kv_heads=10 which is only divisible by 2
+        model = LLM(model=args.base_model, pipeline_parallel_size=2)
 
-    tokenizer = AutoTokenizer.from_pretrained(args.base_model, use_fast=False)
+    tokenizer = AutoTokenizer.from_pretrained(args.base_model, use_fast=True)
 
     prompts, _ = get_gen_dataset(args.dataset_name, args.max_sample, tokenizer)
 
