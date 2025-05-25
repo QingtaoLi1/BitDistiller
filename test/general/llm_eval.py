@@ -21,6 +21,7 @@ if __name__ == '__main__':
         '--model', type=str,
         help='LlaMa model to load; pass location of hugginface converted checkpoint.'
     )
+    parser.add_argument('--gptqmodel', type=bool, default=False, help='whether to evaluate a gptq model')
     parser.add_argument('--eval_tasks', type=str, help='evaluation tasks') # hendrycksTest-*; arc_challenge,winogrande,hellaswag,piqa
     parser.add_argument('--test_set', action="store_true", help='evaluation tasks')
     parser.add_argument('--batch_size', type=int, default=2, help='evaluation tasks')
@@ -33,15 +34,15 @@ if __name__ == '__main__':
     if "hendrycksTest" not in args.eval_tasks:
         args.test_set = True
     
-    ### For normal models
-    # model = AutoModelForCausalLM.from_pretrained(args.model, 
-    #                                             torch_dtype=torch.bfloat16, 
-    #                                             use_safetensors=True,
-    #                                             device_map='cuda:0',
-    #                                             )
-    ### For GPTQ models
-    from gptqmodel import GPTQModel
-    model = GPTQModel.from_quantized(args.model, device="cuda:0", trust_remote_code=True)
+    if args.gptqmodel:
+        from gptqmodel import GPTQModel
+        model = GPTQModel.from_quantized(args.model, device="cuda:0", trust_remote_code=True)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(args.model, 
+                                                    torch_dtype=torch.bfloat16, 
+                                                    use_safetensors=True,
+                                                    device_map='cuda:0',
+                                                    trust_remote_code=True)
         
     if args.quant_type is not None:
         q_config = {
