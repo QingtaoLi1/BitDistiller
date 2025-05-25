@@ -51,4 +51,5 @@ train.py \
     --train_kd True \
     --kd_loss_type "cakld" \
     --max_train_samples 999999 \
-    --clip $CLIP_PATH
+    --clip $CLIP_PATH \
+    --use_flash_attn

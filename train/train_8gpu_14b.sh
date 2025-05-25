@@ -34,10 +34,10 @@ train.py \
     --gradient_accumulation_steps 2 \
     --gradient_checkpointing True \
     --eval_strategy "steps" \
-    --eval_steps 400 \
+    --eval_steps 100 \
     --load_best_model_at_end True \
     --save_strategy "steps" \
-    --save_steps 400 \
+    --save_steps 100 \
     --save_total_limit 300 \
     --learning_rate 8e-6 \
     --lr_scheduler_type "constant" \
@@ -51,4 +51,5 @@ train.py \
     --train_kd True \
     --kd_loss_type "cakld" \
     --max_train_samples 999999 \
-    --clip $CLIP_PATH
+    --clip $CLIP_PATH \
+    --use_flash_attn
