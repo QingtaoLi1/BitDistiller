@@ -37,4 +37,5 @@ deepspeed --include localhost:4,5,6,7 train.py \
     --train_kd True \
     --kd_loss_type "cakld" \
     --max_train_samples 999999 \
-    --clip /home/superbench/qingtaoli/BitDistiller/quantization/clip_cache/Llama-2-7b-hf/int2-g64.pt 
+    --clip /home/superbench/qingtaoli/BitDistiller/quantization/clip_cache/Llama-2-7b-hf/int2-g64.pt  \
+    --use_flash_attn
