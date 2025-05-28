@@ -194,8 +194,8 @@ class SupervisedDataset(Dataset):
             indices = random.sample(range(dataset_size), max_sample)
             self.sources, self.targets = [sources[i] for i in indices], [targets[i] for i in indices]
         else:
-            self.sources, self.targets = sources, targets 
-                 
+            self.sources, self.targets = sources, targets
+
         split_num = len(self.sources) // 10
         if split == "train":
             self.sources, self.targets = self.sources[split_num:], self.targets[split_num:]
@@ -399,7 +399,7 @@ def train():
                 outputs = teacher_model(**batch)
             logits = outputs.get("logits").contiguous()
             prob1 = torch.nn.functional.softmax(logits, dim=-1)
-            prob1 = torch.max(prob1, dim=-1).values 
+            prob1 = torch.max(prob1, dim=-1).values
             prob += prob1.mean()
         mean_prob = prob / training_args.cakld_steps
         mean_prob = torch.Tensor(mean_prob.to(teacher_model.device))

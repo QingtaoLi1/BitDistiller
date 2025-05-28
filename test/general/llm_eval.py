@@ -33,17 +33,17 @@ if __name__ == '__main__':
     print(args)
     if "hendrycksTest" not in args.eval_tasks:
         args.test_set = True
-    
+
     if args.gptqmodel:
         from gptqmodel import GPTQModel
         model = GPTQModel.from_quantized(args.model, device="cuda:0", trust_remote_code=True)
     else:
-        model = AutoModelForCausalLM.from_pretrained(args.model, 
-                                                    torch_dtype=torch.bfloat16, 
+        model = AutoModelForCausalLM.from_pretrained(args.model,
+                                                    torch_dtype=torch.bfloat16,
                                                     use_safetensors=True,
                                                     device_map='cuda:0',
                                                     trust_remote_code=True)
-        
+
     if args.quant_type is not None:
         q_config = {
             "zero_point": True,  # by default True

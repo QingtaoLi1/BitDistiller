@@ -2,12 +2,12 @@ import torch
 from torch import Tensor, device, dtype, nn
 from quantizer import *
 
-def convertModelToQuant(model, 
-                        modules_to_not_convert=["lm_head"], 
-                        current_key_name=None, 
+def convertModelToQuant(model,
+                        modules_to_not_convert=["lm_head"],
+                        current_key_name=None,
                         has_been_replaced=False,
-                        compute_dtype=torch.bfloat16, 
-                        quant_type="clsq-n2f3", 
+                        compute_dtype=torch.bfloat16,
+                        quant_type="clsq-n2f3",
                         q_group_size=128):
     for name, module in model.named_children():
         if current_key_name is None:
@@ -18,7 +18,7 @@ def convertModelToQuant(model,
             out_features = module.out_features
             weight = module.weight
             bias = module.bias
-            
+
             model._modules[name] = QLinear(
                 in_features,
                 out_features,
@@ -46,7 +46,7 @@ def convertModelToQuant(model,
         # Remove the last key for recursion
         current_key_name.pop(-1)
     return model, has_been_replaced
-    
+
 class QLinear(nn.Linear):
     def __init__(self, input_features, output_features, bias=True, compute_dtype=torch.bfloat16, quant_type="ste-n2f3", q_group_size=128, device=None):
         super().__init__(input_features, output_features, bias, device)
