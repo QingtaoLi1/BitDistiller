@@ -29,9 +29,9 @@ train.py \
     --num_train_epochs 10 \
     --bf16 True \
     --seed 42 \
-    --per_device_train_batch_size 1 \
-    --per_device_eval_batch_size 1 \
-    --gradient_accumulation_steps 8 \
+    --per_device_train_batch_size 2 \
+    --per_device_eval_batch_size 2 \
+    --gradient_accumulation_steps 4 \
     --gradient_checkpointing True \
     --eval_strategy "steps" \
     --eval_steps 100 \
