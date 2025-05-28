@@ -25,6 +25,8 @@ import random
 from tqdm import tqdm
 
 
+os.environ['NCCL_DEBUG'] = 'ERROR'
+os.environ["DEEPSPEED_LOG_LEVEL"] = "WARNING"
 
 def _make_r_io_base(f, mode: str):
     if not isinstance(f, io.IOBase):
@@ -199,11 +201,12 @@ class SupervisedDataset(Dataset):
         split_num = len(self.sources) // 10
         if split == "train":
             self.sources, self.targets = self.sources[split_num:], self.targets[split_num:]
-            print(f"Using {len(self.sources)} samples to train")
+            if int(os.environ.get('LOCAL_RANK', '0')) == 0:
+                print(f"Using {len(self.sources)} samples to train")
 
-            print("Example Data")
-            print("sources: \n", self.sources[0])
-            print("targets: \n", self.targets[0])
+                print("Example Data")
+                print("sources: \n", self.sources[0])
+                print("targets: \n", self.targets[0])
 
         elif split == "eval":
             self.sources, self.targets = self.sources[:split_num], self.targets[:split_num]
@@ -333,10 +336,10 @@ def train():
         model, _ = convertModelToQuant(model, compute_dtype=torch.bfloat16, quant_type=training_args.quant_type, q_group_size=training_args.q_group_size)
 
     if training_args.clip is not None:
-        q_config = {
-            "zero_point": True,  # by default True
-            "q_group_size": training_args.q_group_size,  # whether to use group quantization
-        }
+        # q_config = {
+        #     "zero_point": True,  # by default True
+        #     "q_group_size": training_args.q_group_size,  # whether to use group quantization
+        # }
         print("Loading pre-computed Clipping results from", training_args.clip)
         clip_results = torch.load(training_args.clip)
         apply_clip(model, clip_results)
@@ -379,33 +382,33 @@ def train():
         model.kd_loss_scale = 1.0
         print("Teacher Model loaded")
 
-    mean_prob=0
-    if training_args.kd_loss_type == "cakld":
-        print("Get the main Prob!")
-        probDataloader = DataLoader(
-            data_module['train_dataset'], 
-            shuffle=True, 
-            collate_fn=data_module['data_collator'], 
-            batch_size=training_args.per_device_train_batch_size,
-            drop_last=True,
-        )
+        mean_prob=0
+        if training_args.kd_loss_type == "cakld":
+            print("Get the main Prob!")
+            probDataloader = DataLoader(
+                data_module['train_dataset'], 
+                shuffle=True, 
+                collate_fn=data_module['data_collator'], 
+                batch_size=training_args.per_device_train_batch_size,
+                drop_last=True,
+            )
 
-        prob = 0
-        for step, batch in tqdm(enumerate(probDataloader)):
-            if step > training_args.cakld_steps:
-                break
-            batch = {k: v.to(teacher_model.device) for k, v in batch.items()}
-            with torch.no_grad():
-                outputs = teacher_model(**batch)
-            logits = outputs.get("logits").contiguous()
-            prob1 = torch.nn.functional.softmax(logits, dim=-1)
-            prob1 = torch.max(prob1, dim=-1).values
-            prob += prob1.mean()
-        mean_prob = prob / training_args.cakld_steps
-        mean_prob = torch.Tensor(mean_prob.to(teacher_model.device))
-        dist.all_reduce(mean_prob, op=dist.ReduceOp.SUM)
-        mean_prob = mean_prob / dist.get_world_size()
-        print(f"Get the coefficient: {mean_prob}")
+            prob = 0
+            for step, batch in tqdm(enumerate(probDataloader)):
+                if step > training_args.cakld_steps:
+                    break
+                batch = {k: v.to(teacher_model.device) for k, v in batch.items()}
+                with torch.no_grad():
+                    outputs = teacher_model(**batch)
+                logits = outputs.get("logits").contiguous()
+                prob1 = torch.nn.functional.softmax(logits, dim=-1)
+                prob1 = torch.max(prob1, dim=-1).values
+                prob += prob1.mean()
+            mean_prob = prob / training_args.cakld_steps
+            mean_prob = torch.Tensor(mean_prob.to(teacher_model.device))
+            dist.all_reduce(mean_prob, op=dist.ReduceOp.SUM)
+            mean_prob = mean_prob / dist.get_world_size()
+            print(f"Get the coefficient: {mean_prob}")
 
 
     if training_args.train_kd:
