@@ -26,7 +26,8 @@ from tqdm import tqdm
 
 
 os.environ['NCCL_DEBUG'] = 'ERROR'
-os.environ["DEEPSPEED_LOG_LEVEL"] = "WARNING"
+os.environ['DEEPSPEED_LOG_LEVEL'] = 'WARNING'
+os.environ['PYTORCH_HIP_ALLOC_CONF'] = 'expandable_segments:True'
 
 def _make_r_io_base(f, mode: str):
     if not isinstance(f, io.IOBase):
@@ -198,7 +199,7 @@ class SupervisedDataset(Dataset):
         else:
             self.sources, self.targets = sources, targets
 
-        split_num = len(self.sources) // 10
+        split_num = min(len(self.sources) // 10, 10)
         if split == "train":
             self.sources, self.targets = self.sources[split_num:], self.targets[split_num:]
             if int(os.environ.get('LOCAL_RANK', '0')) == 0:
@@ -386,11 +387,11 @@ def train():
         if training_args.kd_loss_type == "cakld":
             print("Get the main Prob!")
             probDataloader = DataLoader(
-                data_module['train_dataset'], 
-                shuffle=True, 
-                collate_fn=data_module['data_collator'], 
+                data_module['train_dataset'],
+                shuffle=False,
+                collate_fn=data_module['data_collator'],
                 batch_size=training_args.per_device_train_batch_size,
-                drop_last=True,
+                drop_last=False,
             )
 
             prob = 0
