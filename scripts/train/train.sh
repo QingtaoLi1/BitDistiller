@@ -18,6 +18,8 @@ export GLOO_SOCKET_IFNAME="lo"
 export NCCL_SOCKET_IFNAME="lo"
 export WANDB_DISABLED=true  
 
+cd "$(dirname "$0")/../../train"
+
 # CUDA_VISIBLE_DEVICES=0 python \
 deepspeed --hostfile=hostfile --include localhost:0,1,2,3 \
 train.py \
@@ -26,18 +28,18 @@ train.py \
     --model_max_length $MAX_LENGTH \
     --output_dir $SAVE_PATH \
     --logging_dir $LOG_PATH \
-    --num_train_epochs 10 \
+    --num_train_epochs 1 \
     --bf16 True \
     --seed 42 \
-    --per_device_train_batch_size 2 \
-    --per_device_eval_batch_size 2 \
-    --gradient_accumulation_steps 4 \
+    --per_device_train_batch_size 16 \
+    --per_device_eval_batch_size 16 \
+    --gradient_accumulation_steps 2 \
     --gradient_checkpointing True \
     --eval_strategy "steps" \
-    --eval_steps 100 \
+    --eval_steps 400 \
     --load_best_model_at_end True \
     --save_strategy "steps" \
-    --save_steps 100 \
+    --save_steps 400 \
     --save_total_limit 300 \
     --learning_rate 8e-6 \
     --lr_scheduler_type "constant" \
