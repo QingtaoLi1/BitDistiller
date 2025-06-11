@@ -40,25 +40,10 @@ class KDTrainer(Trainer):
     def cakld_loss(self, labels, student_logits, teacher_logits, beta_prob):
         mask = (labels != -100)
 
-        ### teacher_logits, topk_indices = torch.topk(origin_teacher_logits, self.topk, dim=2)
-        ### student_logits = torch.gather(origin_student_logits, 2, topk_indices)
-        ### del origin_teacher_logits
-        ### del origin_student_logits
-
-        # reverse
         teacher_output_log_prob = F.log_softmax(teacher_logits, dim=2)
-        # Compute the softmax of the student's logits (approximate distribution)
-        student_output_soft = F.softmax(student_logits, dim=2)
-        # Calculate the reverse KL Divergence (KL(teacher_logits || student_logits))
-        reverse_kl = F.kl_div(teacher_output_log_prob, student_output_soft, reduction="none").sum(-1)
-        ### del teacher_output_log_prob
-
-        # forward
         student_output_log_prob = F.log_softmax(student_logits, dim=2)
-        teacher_output_soft = F.softmax(teacher_logits, dim=2)
-        # Calculate the reverse KL Divergence (KL(teacher_logits || student_logits))
-        forward_kl = F.kl_div(student_output_log_prob, teacher_output_soft, reduction="none").sum(-1)
-        ### del teacher_output_soft
+        reverse_kl = F.kl_div(teacher_output_log_prob, student_output_log_prob, reduction="none", log_target=True).sum(-1)
+        forward_kl = F.kl_div(student_output_log_prob, teacher_output_log_prob, reduction="none", log_target=True).sum(-1)
 
         kl_loss = beta_prob * reverse_kl + (1 - beta_prob) * forward_kl
         kl_loss *= mask
@@ -70,6 +55,7 @@ class KDTrainer(Trainer):
         student_prob = F.softmax(student_logits, dim=2)
         teacher_prob = F.softmax(teacher_logits, dim=2)
 
+        # TODO: check NAN problem of this loss
         c_prob = beta_prob * teacher_prob + (1-beta_prob) * student_prob
         c_log_prob = c_prob.log()
 
@@ -87,10 +73,10 @@ class KDTrainer(Trainer):
         mask = (labels != -100)
 
         model_output_log_prob = F.log_softmax(student_logits, dim=2)
-        real_output_soft = F.softmax(teacher_logits / self.tmp, dim=2)
+        real_output_log_prob = F.log_softmax(teacher_logits / self.tmp, dim=2)
 
         # loss = F.kl_div(model_output_log_prob, real_output_soft, reduction="batchmean")
-        kl_loss = F.kl_div(model_output_log_prob, real_output_soft, reduction="none")
+        kl_loss = F.kl_div(model_output_log_prob, real_output_log_prob, reduction="none", log_target=True)
         kl_loss = kl_loss.sum(-1) * mask
         kl_loss = kl_loss.sum(-1).mean()
         return kl_loss
@@ -98,14 +84,11 @@ class KDTrainer(Trainer):
     def re_loss(self, labels, student_logits, teacher_logits):
         mask = (labels != -100)
 
-        # Compute the log probabilities of the teacher's logits (true distribution)
         teacher_output_log_prob = F.log_softmax(teacher_logits, dim=2)
-
-        # Compute the softmax of the student's logits (approximate distribution)
-        student_output_soft = F.softmax(student_logits, dim=2)
+        student_output_log_prob = F.log_softmax(student_logits, dim=2)
 
         # Calculate the reverse KL Divergence (KL(teacher_logits || student_logits))
-        kl_loss = F.kl_div(teacher_output_log_prob, student_output_soft, reduction="none")
+        kl_loss = F.kl_div(teacher_output_log_prob, student_output_log_prob, reduction="none", log_target=True)
         kl_loss = kl_loss.sum(-1) * mask
         kl_loss = kl_loss.sum(-1).mean()
         return kl_loss
