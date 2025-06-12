@@ -6,23 +6,8 @@ import subprocess
 
 HF_token = ""
 
-
-parser = argparse.ArgumentParser(description="Generate Singularity YAML for Amulet job")
-parser.add_argument("--vc", type=str, required=True, choices=["msrresrchvc", "msrresrchbasicvc"], help="Virtual Cluster name")
-parser.add_argument("--mode", type=str, required=True, choices=["test_openr1", "test_arc", "test_mmlu"], help="Mode of the job")
-parser.add_argument("--model_dir", type=str, required=True, help="Directory containing the model checkpoints")
-parser.add_argument("--ckpts", type=str, required=True, help="Comma-separated list of checkpoints to use")
-args = parser.parse_args()
-
-ckpts = args.ckpts.split(",")
-ckpts = [ckpt.strip() for ckpt in ckpts if ckpt.strip().isdigit()]
-num_ckpts = len(ckpts)
-if num_ckpts <= 0:
-    raise ValueError("No valid checkpoints provided. Please provide a comma-separated list of numeric checkpoints.")
-
-mode_env = ""
-if args.mode in ["test_arc", "test_mmlu"]:
-    mode_env = """
+# YAML environment setup for different modes
+test_arc_mmlu_env = """
     - pwd
     - sudo apt-get update
     - sudo apt-get install -y vim
@@ -39,8 +24,7 @@ if args.mode in ["test_arc", "test_mmlu"]:
 
     - echo -e "alias ll='ls -al'" >> ~/.bashrc
 """
-elif args.mode in ["test_openr1"]:
-    mode_env = """
+test_openr1_env = """
     - pwd
     - sudo apt-get update
     - sudo apt-get install -y vim
@@ -57,29 +41,19 @@ elif args.mode in ["test_openr1"]:
 
     - echo -e "alias ll='ls -al'" >> ~/.bashrc
 """
-    mode_job = "mmlu"
-else:
-    raise ValueError("Invalid mode specified. Choose from 'test_openr1', 'test_arc', or 'test_mmlu'.")
 
-def extract_last_three_levels(path):
-    path = Path(path.rstrip("/").rstrip("\\"))
-    return '_'.join(path.parts[-2:])
-model_info = extract_last_three_levels(args.model_dir)
-
-mode_job = []
-if args.mode in ["test_arc", "test_mmlu"]:
-    assert num_ckpts <= 4, "For 'test_arc', the number of checkpoints must be 4 or fewer."
-    py_command = ""
-    log_file_name = ""
-    if args.mode == "test_arc":
+def get_test_arc_mmlu_commands(mode, model_info, model_dir, ckpts):
+    if mode == "test_arc":
         py_command = f"python llm_eval.py --model $$CKPT_DIR --eval_tasks arc_challenge,winogrande,hellaswag,piqa --test_set --num_fewshot 0 --bits 2 --group_size 64 --quant_type int"
         log_file_name = "arc.log"
-    elif args.mode == "test_mmlu":
+    elif mode == "test_mmlu":
         py_command = f"python llm_eval.py --model $$CKPT_DIR --eval_tasks hendrycksTest-* --test_set --num_fewshot 5 --bits 2 --group_size 64 --quant_type int"
         log_file_name = "MMLU.log"
 
+    num_ckpts = len(ckpts)
+
     command = f"""
-- name: bd_{args.mode}_{model_info}_{args.ckpts}
+- name: bd_{mode}_{model_info}_{','.join(ckpts)}
   sku: NC_A100_v4:G{num_ckpts if num_ckpts <= 2 else 4}
   identity: managed
   submit_args:
@@ -91,7 +65,7 @@ if args.mode in ["test_arc", "test_mmlu"]:
 """
     for i, ckpt in enumerate(ckpts):
         command += f"""
-    - export CKPT_DIR={args.model_dir}/checkpoint-{ckpt}/
+    - export CKPT_DIR={model_dir}/checkpoint-{ckpt}/
     - CUDA_VISIBLE_DEVICES={i} nohup {py_command} > $$CKPT_DIR/{log_file_name} 2>&1 &
     - pid{i}=$$!
 """
@@ -104,12 +78,14 @@ if args.mode in ["test_arc", "test_mmlu"]:
   priority: High
   azml_int: True
 """
-    mode_job = [command]
-elif args.mode == "test_openr1":
+    return [command]
+
+def get_test_openr1_commands(mode, model_info, model_dir, ckpts):
+    commands = []
     for i, ckpt in enumerate(ckpts):
         for task in ["aime24", "gpqa:diamond", "math_500"]:
             command = f"""
-- name: bd_{args.mode}_{model_info}_{ckpt}_{task}
+- name: bd_{mode}_{model_info}_{ckpt}_{task}
   sku: NC_A100_v4:G4
   identity: managed
   submit_args:
@@ -126,7 +102,7 @@ elif args.mode == "test_openr1":
     - cd /scratch/amlt_code/test/3rdparty/open-r1
     - export NUM_GPUS=4
 
-    - export MODEL_DIR={args.model_dir}/checkpoint-{ckpt}/
+    - export MODEL_DIR={model_dir}/checkpoint-{ckpt}/
     - export MODEL_ARGS="pretrained=$$MODEL_DIR,dtype=bfloat16,data_parallel_size=$$NUM_GPUS,max_model_length=32768,gpu_memory_utilization=0.9,generation_parameters={{max_new_tokens:32768,temperature:0.6,top_p:0.95}},bits=2,group_size=64,quant_type=int"
     - export OUTPUT_DIR=$$MODEL_DIR/evals
     - lighteval vllm $$MODEL_ARGS "custom|{task}|0|0" --custom-tasks src/open_r1/evaluate.py --use-chat-template --output-dir $$OUTPUT_DIR --save-details
@@ -134,16 +110,12 @@ elif args.mode == "test_openr1":
   priority: High
   azml_int: True
 """
-            mode_job.append(command)
-else:
-    raise ValueError("Invalid mode specified. Choose from 'test_openr1', 'test_arc', or 'test_mmlu'.")
+            commands.append(command)
+    return commands
 
-assert len(mode_job) > 0, "No job commands generated. Please check the mode and checkpoints."
-jobs_text = "\n".join(mode_job)
-
-vc = args.vc
-yaml_text = f"""
-description: Simple Amulet job on Singularity
+def get_yaml_text(vc, mode_env, jobs_text):
+    yaml_text = \
+f"""description: Simple Amulet job on Singularity
 
 target:
   service: sing
@@ -180,23 +152,82 @@ data:
 jobs:
 {jobs_text}
 """
+    return yaml_text
 
-output_file = os.path.join("scripts", "sing", f"singularity_{args.mode}.yaml")
-with open(output_file, 'w') as f:
-    f.write(yaml_text)
-print(f"YAML configuration generated: {output_file}")
-exit()
 
-print("Running Singularity command to submit the job...")
-shell_command = f"amlt run {output_file} -y -d {args.mode},{model_info}"
-# result = subprocess.run(shell_command, shell=True, capture_output=True, text=True)
-# print("STDOUT:", result.stdout)
-# print("STDERR:", result.stderr)
+valid_modes = {"test_openr1", "test_arc", "test_mmlu"}
+def comma_separated_list_mode(arg):
+    items = arg.split(",")
+    for item in items:
+        if item not in valid_modes:
+            raise argparse.ArgumentTypeError(f"Invalid mode: {item}")
+    return items
 
-process = subprocess.Popen(shell_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-for line in process.stdout:
-    print("STDOUT:", line.strip())
-for line in process.stderr:
-    print("STDERR:", line.strip())
-# Wait for process to complete
-process.wait()
+def comma_separated_list_ckpts(arg):
+    items = arg.split(",")
+    for item in items:
+        if not item.isdigit():
+            raise argparse.ArgumentTypeError(f"Invalid checkpoint: {item}. Must be numeric.")
+    return items
+
+parser = argparse.ArgumentParser(description="Generate Singularity YAML for Amulet job")
+parser.add_argument("--vc", type=str, required=True, choices=["msrresrchvc", "msrresrchbasicvc"], help="Virtual Cluster name")
+parser.add_argument("--mode", type=comma_separated_list_mode, required=True, help="Mode of the job. Valid options: " + ", ".join(valid_modes))
+parser.add_argument("--model_dir", type=str, required=True, help="Directory containing the model checkpoints")
+parser.add_argument("--ckpts", type=comma_separated_list_ckpts, required=True, help="Comma-separated list of checkpoints to use")
+args = parser.parse_args()
+
+num_ckpts = len(args.ckpts)
+if num_ckpts <= 0:
+    raise ValueError("No valid checkpoints provided. Please provide a comma-separated list of numeric checkpoints.")
+
+for mode in args.mode:
+    mode_env = ""
+    if mode in ["test_arc", "test_mmlu"]:
+        mode_env = test_arc_mmlu_env
+    elif mode in ["test_openr1"]:
+        mode_env = test_openr1_env
+    else:
+        raise ValueError("Invalid mode specified. Choose from 'test_openr1', 'test_arc', or 'test_mmlu'.")
+
+    def extract_last_three_levels(path):
+        path = Path(path.rstrip("/").rstrip("\\"))
+        return '_'.join(path.parts[-2:])
+    model_info = extract_last_three_levels(args.model_dir)
+
+    mode_job = []
+    if mode in ["test_arc", "test_mmlu"]:
+        assert num_ckpts <= 4, "For 'test_arc', the number of checkpoints must be 4 or fewer."
+        mode_job = get_test_arc_mmlu_commands(mode, model_info, args.model_dir, args.ckpts)
+    elif mode == "test_openr1":
+        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts)
+    else:
+        raise ValueError("Invalid mode specified. Choose from 'test_openr1', 'test_arc', or 'test_mmlu'.")
+
+    assert len(mode_job) > 0, "No job commands generated. Please check the mode and checkpoints."
+    jobs_text = "\n".join(mode_job)
+
+    vc = args.vc
+    yaml_text = get_yaml_text(vc, mode_env, jobs_text)
+
+    output_file = os.path.join("scripts", "sing", f"singularity_{mode}.yaml")
+    with open(output_file, 'w') as f:
+        f.write(yaml_text)
+    print(f"YAML configuration generated: {output_file}")
+
+
+    # Run the Singularity command to submit the job
+    print("Running Singularity command to submit the job...")
+    shell_command = f"amlt run {output_file} -y -d {mode},{model_info}"
+
+    process = subprocess.Popen(shell_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    # Wait for process to complete
+    return_code = process.wait()
+    if return_code != 0:
+        print(f"Error: Singularity command failed with return code {return_code}.")
+        for line in process.stdout:
+            print("STDOUT:", line.strip())
+        for line in process.stderr:
+            print("STDERR:", line.strip())
+    else:
+        print("Singularity command executed successfully.")
