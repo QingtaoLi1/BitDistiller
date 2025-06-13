@@ -218,13 +218,20 @@ for mode in args.mode:
 
     # Run the Singularity command to submit the job
     print("Running Singularity command to submit the job...")
-    shell_command = f"amlt run {output_file} -y -d {mode},{model_info}"
+    shell_command = f"amlt run {output_file} -y -d \"{mode},{model_info}\""
+    print("Shell command: ", shell_command)
 
     process = subprocess.Popen(shell_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    # Wait for process to complete
-    return_code = process.wait()
-    if return_code != 0:
-        print(f"Error: Singularity command failed with return code {return_code}.")
+
+    try:
+        stdout, stderr = process.communicate(timeout=180)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        stdout, stderr = process.communicate()
+        print("Error: Singularity command timed out.")
+    
+    if process.returncode != 0:
+        print(f"Error: Singularity command failed with return code {process.return_code}.")
         for line in process.stdout:
             print("STDOUT:", line.strip())
         for line in process.stderr:
