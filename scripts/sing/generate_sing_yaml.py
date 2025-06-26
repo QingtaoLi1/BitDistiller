@@ -6,7 +6,7 @@ import subprocess
 
 HF_token = ""
 
-# YAML environment setup for different modes
+# YAML-formatted environment setup for different modes
 test_arc_mmlu_env = """
     - pwd
     - sudo apt-get update
@@ -80,10 +80,18 @@ def get_test_arc_mmlu_commands(mode, model_info, model_dir, ckpts):
 """
     return [command]
 
-def get_test_openr1_commands(mode, model_info, model_dir, ckpts):
+def get_test_openr1_commands(mode, model_info, model_dir, ckpts, only_aime=False, only_gpqa=False, only_math500=False):
+    tasks = ["aime24", "gpqa:diamond", "math_500"]
+    if only_aime:
+        tasks = ["aime24"]
+    elif only_gpqa:
+        tasks = ["gpqa:diamond"]
+    elif only_math500:
+        tasks = ["math_500"]
+
     commands = []
     for i, ckpt in enumerate(ckpts):
-        for task in ["aime24", "gpqa:diamond", "math_500"]:
+        for task in tasks:
             command = f"""
 - name: bd_{mode}_{model_info}_{ckpt}_{task}
   sku: NC_A100_v4:G4
@@ -155,7 +163,8 @@ jobs:
     return yaml_text
 
 
-valid_modes = {"test_openr1", "test_arc", "test_mmlu"}
+# Prepare argument parsing
+valid_modes = {"test_openr1", "test_aime", "test_gpqa", "test_math500", "test_arc", "test_mmlu"}
 def comma_separated_list_mode(arg):
     items = arg.split(",")
     for item in items:
@@ -177,6 +186,8 @@ parser.add_argument("--model_dir", type=str, required=True, help="Directory cont
 parser.add_argument("--ckpts", type=comma_separated_list_ckpts, required=True, help="Comma-separated list of checkpoints to use")
 args = parser.parse_args()
 
+
+# Build and execute the YAML configuration
 num_ckpts = len(args.ckpts)
 if num_ckpts <= 0:
     raise ValueError("No valid checkpoints provided. Please provide a comma-separated list of numeric checkpoints.")
@@ -185,10 +196,10 @@ for mode in args.mode:
     mode_env = ""
     if mode in ["test_arc", "test_mmlu"]:
         mode_env = test_arc_mmlu_env
-    elif mode in ["test_openr1"]:
+    elif mode in ["test_openr1", "test_aime", "test_gpqa", "test_math500"]:
         mode_env = test_openr1_env
     else:
-        raise ValueError("Invalid mode specified. Choose from 'test_openr1', 'test_arc', or 'test_mmlu'.")
+        raise ValueError("Invalid mode specified. Choose from 'test_openr1', 'test_aime', 'test_gpqa', 'test_math500', 'test_arc', or 'test_mmlu'.")
 
     def extract_last_three_levels(path):
         path = Path(path.rstrip("/").rstrip("\\"))
@@ -201,8 +212,14 @@ for mode in args.mode:
         mode_job = get_test_arc_mmlu_commands(mode, model_info, args.model_dir, args.ckpts)
     elif mode == "test_openr1":
         mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts)
+    elif mode == "test_aime":
+        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, only_aime=True)
+    elif mode == "test_gpqa":
+        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, only_gpqa=True)
+    elif mode == "test_math500":
+        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, only_math500=True)
     else:
-        raise ValueError("Invalid mode specified. Choose from 'test_openr1', 'test_arc', or 'test_mmlu'.")
+        raise ValueError("Invalid mode specified. Choose from 'test_openr1', 'test_aime', 'test_arc', or 'test_mmlu'.")
 
     assert len(mode_job) > 0, "No job commands generated. Please check the mode and checkpoints."
     jobs_text = "\n".join(mode_job)
