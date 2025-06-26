@@ -28,6 +28,8 @@ from tqdm import tqdm
 os.environ['NCCL_DEBUG'] = 'ERROR'
 os.environ['DEEPSPEED_LOG_LEVEL'] = 'WARNING'
 os.environ['PYTORCH_HIP_ALLOC_CONF'] = 'expandable_segments:True'
+BITDISTILLER_DEBUG = os.environ.get('BITDISTILLER_DEBUG', '0') == '1'
+
 
 def _make_r_io_base(f, mode: str):
     if not isinstance(f, io.IOBase):
@@ -205,9 +207,9 @@ class SupervisedDataset(Dataset):
             if int(os.environ.get('LOCAL_RANK', '0')) == 0:
                 print(f"Using {len(self.sources)} samples to train")
 
-                print("Example Data")
-                print("sources: \n", self.sources[0])
-                print("targets: \n", self.targets[0])
+                # print("Example Data")
+                # print("sources: \n", self.sources[0])
+                # print("targets: \n", self.targets[0])
 
         elif split == "eval":
             self.sources, self.targets = self.sources[:split_num], self.targets[:split_num]
@@ -266,6 +268,86 @@ def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer, dat
     data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
     return dict(train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator)
 
+
+INT_MAX = 2_147_483_647
+
+def check_for_nan_or_inf(tensor, name=""):
+    if int(os.environ.get('LOCAL_RANK', '0')) != 0:
+        return
+    
+    if not torch.is_floating_point(tensor):
+        return  # skip int/bool tensors
+
+    if torch.isfinite(tensor).all():
+        return
+
+    print(f"\n[!] NaN or Inf detected in: {name}", file=sys.stderr)
+    print(f"    Shape: {tensor.shape}, Device: {tensor.device}", file=sys.stderr)
+    print("    Scanning in chunks for invalid values...", file=sys.stderr)
+
+    flat = tensor.detach().view(-1)
+    total_size = flat.numel()
+    chunk_size = INT_MAX // 4  # ~0.5B elements per chunk to stay safe
+    max_report = 10
+    found = 0
+
+    for chunk_start in range(0, total_size, chunk_size):
+        chunk_end = min(chunk_start + chunk_size, total_size)
+        chunk = flat[chunk_start:chunk_end]
+
+        # Identify invalid entries in chunk
+        invalid_mask = ~torch.isfinite(chunk)
+        if invalid_mask.any():
+            bad_indices = torch.nonzero(invalid_mask, as_tuple=False).squeeze()
+            print(f"  Chunk [{chunk_start}:{chunk_end}] has {bad_indices.numel()} invalid entries:", file=sys.stderr)
+            for idx in bad_indices:
+                global_idx = chunk_start + idx.item()
+                val = chunk[idx].item()
+                print(f"    [flat index {global_idx}] value: {val}", file=sys.stderr)
+                found += 1
+                if found >= max_report:
+                    raise ValueError(f"NaN or Inf detected in tensor: {name}")
+    raise ValueError(f"NaN or Inf detected in tensor: {name}")
+
+def add_nan_inf_hooks(model : torch.nn.Module):
+    for name, module in model.named_modules():
+        def forward_hook(mod, input, output, name=name):
+            if hasattr(output, "last_hidden_state"):
+                output = output.last_hidden_state
+            if isinstance(output, torch.Tensor):
+                check_for_nan_or_inf(output, name=f"{name} (forward output)")
+            elif isinstance(output, (tuple, list)):
+                for idx, out in enumerate(output):
+                    if isinstance(out, torch.Tensor):
+                        check_for_nan_or_inf(out, name=f"{name} (forward output {idx})")
+
+        def backward_hook(mod, grad_input, grad_output, name=name):
+            if isinstance(grad_output, torch.nn.Module):
+                for name, tensor in model.state_dict().items():
+                    if "weight" in name:
+                        check_for_nan_or_inf(tensor, name=f"{name} (backward weight)")
+            for idx, grad in enumerate(grad_input):
+                if isinstance(grad, torch.Tensor):
+                    check_for_nan_or_inf(grad, name=f"{name} (backward grad_input {idx})")
+            for idx, grad in enumerate(grad_output):
+                if isinstance(grad, torch.Tensor):
+                    check_for_nan_or_inf(grad, name=f"{name} (backward grad_output {idx})")
+
+        # nn.modules.module.register_module_forward_hook(forward_hook)
+        module.register_full_backward_hook(backward_hook)
+
+def hook_last_hidden(model : torch.nn.Module):
+    for name, module in model.named_modules():
+        if name.endswith("transformer.h.35") or name.endswith("model.layers.35"):
+            print(f"Registering backward hook on: {name}")
+            def bwd_hook(mod, ginp, goutp):
+                for i, g in enumerate(ginp):
+                    if isinstance(g, torch.Tensor):
+                        check_for_nan_or_inf(g, name=f"{name} (backward grad_input {i})")
+                for i, g in enumerate(goutp):
+                    if isinstance(g, torch.Tensor):
+                        check_for_nan_or_inf(g, name=f"{name} (backward grad_output {i})")
+            module.register_full_backward_hook(bwd_hook)
 
 def train():
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -411,6 +493,9 @@ def train():
             mean_prob = mean_prob / dist.get_world_size()
             print(f"Get the coefficient: {mean_prob}")
 
+    if BITDISTILLER_DEBUG:    
+        add_nan_inf_hooks(model)
+        # hook_last_hidden(model)
 
     if training_args.train_kd:
         trainer = KDTrainer(model=model, tokenizer=tokenizer, teacher_model=teacher_model, loss_type=training_args.kd_loss_type, mean_prob=mean_prob, args=training_args, **data_module)

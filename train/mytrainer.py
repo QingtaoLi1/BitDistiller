@@ -23,6 +23,49 @@ from transformers.trainer_pt_utils import (
 
 mse_loss = MSELoss()
 
+BITDISTILLER_DEBUG = os.environ.get("BITDISTILLER_DEBUG", "0") == "1"
+
+
+import os
+INT_MAX = 2_147_483_647
+def check_for_nan_or_inf(tensor, name=""):
+    if int(os.environ.get('LOCAL_RANK', '0')) != 0:
+        return
+    
+    if not torch.is_floating_point(tensor):
+        return  # skip int/bool tensors
+
+    if torch.isfinite(tensor).all():
+        return
+
+    print(f"\n[!] NaN or Inf detected in: {name}", file=sys.stderr)
+    print(f"    Shape: {tensor.shape}, Device: {tensor.device}", file=sys.stderr)
+    print("    Scanning in chunks for invalid values...", file=sys.stderr)
+
+    flat = tensor.detach().view(-1)
+    total_size = flat.numel()
+    chunk_size = INT_MAX // 4  # ~0.5B elements per chunk to stay safe
+    max_report = 10
+    found = 0
+
+    for chunk_start in range(0, total_size, chunk_size):
+        chunk_end = min(chunk_start + chunk_size, total_size)
+        chunk = flat[chunk_start:chunk_end]
+
+        # Identify invalid entries in chunk
+        invalid_mask = ~torch.isfinite(chunk)
+        if invalid_mask.any():
+            bad_indices = torch.nonzero(invalid_mask, as_tuple=False).squeeze()
+            print(f"  Chunk [{chunk_start}:{chunk_end}] has {bad_indices.numel()} invalid entries:", file=sys.stderr)
+            for idx in bad_indices:
+                global_idx = chunk_start + idx.item()
+                val = chunk[idx].item()
+                print(f"    [flat index {global_idx}] value: {val}", file=sys.stderr)
+                found += 1
+                if found >= max_report:
+                    raise ValueError(f"NaN or Inf detected in tensor: {name}")
+    raise ValueError(f"NaN or Inf detected in tensor: {name}")
+
 class KDTrainer(Trainer):
     def __init__(self, teacher_model, loss_type, mean_prob=0, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -41,12 +84,23 @@ class KDTrainer(Trainer):
         mask = (labels != -100)
 
         teacher_output_log_prob = F.log_softmax(teacher_logits, dim=2)
+        if BITDISTILLER_DEBUG:
+            teacher_output_log_prob.requires_grad_()
+            teacher_output_log_prob.register_hook(lambda grad: check_for_nan_or_inf(grad, "teacher_output_log_prob"))
         student_output_log_prob = F.log_softmax(student_logits, dim=2)
+        if BITDISTILLER_DEBUG:
+            student_output_log_prob.register_hook(lambda grad: check_for_nan_or_inf(grad, "student_output_log_prob"))
         reverse_kl = F.kl_div(teacher_output_log_prob, student_output_log_prob, reduction="none", log_target=True).sum(-1)
+        if BITDISTILLER_DEBUG:
+            reverse_kl.register_hook(lambda grad: check_for_nan_or_inf(grad, "reverse_kl"))
         forward_kl = F.kl_div(student_output_log_prob, teacher_output_log_prob, reduction="none", log_target=True).sum(-1)
+        if BITDISTILLER_DEBUG:
+            forward_kl.register_hook(lambda grad: check_for_nan_or_inf(grad, "forward_kl"))
 
         kl_loss = beta_prob * reverse_kl + (1 - beta_prob) * forward_kl
         kl_loss *= mask
+        if BITDISTILLER_DEBUG:
+            kl_loss.register_hook(lambda grad: check_for_nan_or_inf(grad, "kl_loss"))
         kl_loss = kl_loss.sum(-1).mean()
         return kl_loss
 
