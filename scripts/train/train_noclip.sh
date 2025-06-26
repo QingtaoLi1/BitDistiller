@@ -9,8 +9,7 @@ export MODEL_PATH=$1
 export SAVE_PATH=$2
 export DATA_PATH=$3
 export LOG_PATH=$4
-export CLIP_PATH=$5
-export MAX_LENGTH=$6
+export MAX_LENGTH=$5
 
 export MASTER_ADDR="localhost"
 export MASTER_PORT="1321"
@@ -53,5 +52,4 @@ train.py \
     --train_kd True \
     --kd_loss_type "cakld" \
     --max_train_samples 999999 \
-    --clip $CLIP_PATH \
     --use_flash_attn
