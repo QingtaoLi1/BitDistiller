@@ -248,7 +248,7 @@ for mode in args.mode:
         print("Error: Singularity command timed out.")
     
     if process.returncode != 0:
-        print(f"Error: Singularity command failed with return code {process.return_code}.")
+        print(f"Error: Singularity command failed with return code {process.returncode}.")
         for line in process.stdout:
             print("STDOUT:", line.strip())
         for line in process.stderr:
