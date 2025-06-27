@@ -23,6 +23,7 @@ from transformers.trainer_pt_utils import (
 
 mse_loss = MSELoss()
 
+import os
 BITDISTILLER_DEBUG = os.environ.get("BITDISTILLER_DEBUG", "0") == "1"
 
 
