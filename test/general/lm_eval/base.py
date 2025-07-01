@@ -538,7 +538,7 @@ class Task(abc.ABC):
         """
         import time
         succees = False
-        print(self.DATASET_NAME)
+        print(f"{self.DATASET_PATH} --- {self.DATASET_NAME}")
         while not succees:
             try:
                 self.dataset = datasets.load_dataset(
@@ -547,11 +547,13 @@ class Task(abc.ABC):
                     data_dir=data_dir,
                     cache_dir=cache_dir,
                     download_mode=download_mode,
-                    trust_remote_code=True,
+                    # trust_remote_code=True,
                 )
                 succees = True
             except Exception as e:
+                # import traceback
                 print(e)
+                # traceback.print_exc()
                 time.sleep(5)
             
 
