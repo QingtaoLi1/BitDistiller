@@ -2,7 +2,7 @@
 
 ## BitDistiller Training
 
-### Step 1: Asymmetric Quantization & Step 2. Generating Teacher Data
+### Step 1/2: Asymmetric Quantization & Generating Teacher Data
 
 See [readme.md](readme.md).
 
