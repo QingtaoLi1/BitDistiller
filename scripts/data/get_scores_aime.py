@@ -5,8 +5,13 @@ import csv
 # Base path and checkpoints
 base_path = "/mnt/external/checkpoints/Qwen/Qwen3-8B/1b-random-r0.5_cakld_ctx4096"
 checkpoints = [400, 800, 1200, 1600, 2000, 2400, 2800, 3200, 3600, 3809]
-target_benchmarks = ['aime24', 'gpqa:diamond', 'math_500']
-
+target_benchmarks = ['aime24', 'gpqa:diamond', 'math_500', 'lcb:codegeneration']
+benchmark_metric_key = {
+    'aime24': 'extractive_match',
+    'gpqa:diamond': 'extractive_match',
+    'math_500': 'extractive_match',
+    'lcb:codegeneration': 'codegen_pass@1'
+}
 # Initialize results dict
 benchmark_scores = {bench: [] for bench in target_benchmarks}
 valid_checkpoints = []
@@ -43,7 +48,8 @@ for ckpt in checkpoints:
                     if len(parts) >= 2:
                         bench_name = parts[1]
                         if bench_name in target_benchmarks and bench_name not in found_benchmarks:
-                            score = val.get("extractive_match")
+                            metric_key = benchmark_metric_key[bench_name]
+                            score = val.get(metric_key)
                             if isinstance(score, float):
                                 scores[bench_name] = f"{score:.6f}"
                                 found_benchmarks.add(bench_name)

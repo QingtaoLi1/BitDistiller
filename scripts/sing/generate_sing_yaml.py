@@ -20,7 +20,7 @@ test_arc_mmlu_env = """
     - cd /scratch/amlt_code
     - uv pip install -r ./requirement_20250507_transformers_4.51.3.txt
     - uv pip install flash-attn==2.7.4.post1 --no-build-isolation
-    - uv pip install vllm==0.8.5.post1 bitsandbytes
+    - uv pip install vllm==0.8.5.post1 bitsandbytes datasets==2.14.6
 
     - echo -e "alias ll='ls -al'" >> ~/.bashrc
 """
@@ -80,18 +80,27 @@ def get_test_arc_mmlu_commands(mode, model_info, model_dir, ckpts):
 """
     return [command]
 
-def get_test_openr1_commands(mode, model_info, model_dir, ckpts, only_aime=False, only_gpqa=False, only_math500=False):
-    tasks = ["aime24", "gpqa:diamond", "math_500"]
+def get_test_openr1_commands(mode, model_info, model_dir, ckpts, only_aime=False, only_gpqa=False, only_math500=False, only_livecodebench=False):
+    tasks = ["custom|aime24|0|0", "custom|gpqa:diamond|0|0", "custom|math_500|0|0", "extended|lcb:codegeneration|0|0"]
     if only_aime:
-        tasks = ["aime24"]
+        tasks = ["custom|aime24|0|0"]
     elif only_gpqa:
-        tasks = ["gpqa:diamond"]
+        tasks = ["custom|gpqa:diamond|0|0"]
     elif only_math500:
-        tasks = ["math_500"]
+        tasks = ["custom|math_500|0|0"]
+    elif only_livecodebench:
+        tasks = ["extended|lcb:codegeneration|0|0"]
 
     commands = []
     for i, ckpt in enumerate(ckpts):
         for task in tasks:
+            if task == "custom|aime24|0|0":
+                modify_script_name = "aime"
+            elif task == "custom|gpqa:diamond|0|0" or task == "custom|math_500|0|0":
+                modify_script_name = "gpqa"
+            elif task == "extended|lcb:codegeneration|0|0":
+                modify_script_name = "livecodebench"
+
             command = f"""
 - name: bd_{mode}_{model_info}_{ckpt}_{task}
   sku: NC_A100_v4:G4
@@ -105,7 +114,7 @@ def get_test_openr1_commands(mode, model_info, model_dir, ckpts, only_aime=False
 
     - cd /scratch/amlt_code/scripts/code_modify
     - chmod +x ./modify*.sh
-    - ./modify_for_openr1_test_{"aime" if task == "aime24" else "gpqa"}.sh
+    - ./modify_for_openr1_test_{modify_script_name}.sh
 
     - cd /scratch/amlt_code/test/3rdparty/open-r1
     - export NUM_GPUS=4
@@ -113,7 +122,7 @@ def get_test_openr1_commands(mode, model_info, model_dir, ckpts, only_aime=False
     - export MODEL_DIR={model_dir}/checkpoint-{ckpt}/
     - export MODEL_ARGS="pretrained=$$MODEL_DIR,dtype=bfloat16,data_parallel_size=$$NUM_GPUS,max_model_length=32768,gpu_memory_utilization=0.9,generation_parameters={{max_new_tokens:32768,temperature:0.6,top_p:0.95}},bits=2,group_size=64,quant_type=int"
     - export OUTPUT_DIR=$$MODEL_DIR/evals
-    - lighteval vllm $$MODEL_ARGS "custom|{task}|0|0" --custom-tasks src/open_r1/evaluate.py --use-chat-template --output-dir $$OUTPUT_DIR --save-details
+    - lighteval vllm $$MODEL_ARGS "{task}" --custom-tasks src/open_r1/evaluate.py --use-chat-template --output-dir $$OUTPUT_DIR --save-details
   tags: ["Debug:False"]
   priority: High
   azml_int: True
@@ -164,7 +173,7 @@ jobs:
 
 
 # Prepare argument parsing
-valid_modes = {"test_openr1", "test_aime", "test_gpqa", "test_math500", "test_arc", "test_mmlu"}
+valid_modes = {"test_openr1", "test_aime", "test_gpqa", "test_math500", "test_livecodebench", "test_arc", "test_mmlu"}
 def comma_separated_list_mode(arg):
     items = arg.split(",")
     for item in items:
@@ -196,10 +205,10 @@ for mode in args.mode:
     mode_env = ""
     if mode in ["test_arc", "test_mmlu"]:
         mode_env = test_arc_mmlu_env
-    elif mode in ["test_openr1", "test_aime", "test_gpqa", "test_math500"]:
+    elif mode in ["test_openr1", "test_aime", "test_gpqa", "test_math500", "test_livecodebench"]:
         mode_env = test_openr1_env
     else:
-        raise ValueError("Invalid mode specified. Choose from 'test_openr1', 'test_aime', 'test_gpqa', 'test_math500', 'test_arc', or 'test_mmlu'.")
+        raise ValueError("Invalid mode specified. Choose from 'test_openr1', 'test_aime', 'test_gpqa', 'test_math500', 'test_livecodebench', 'test_arc', or 'test_mmlu'.")
 
     def extract_last_three_levels(path):
         path = Path(path.rstrip("/").rstrip("\\"))
@@ -218,8 +227,10 @@ for mode in args.mode:
         mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, only_gpqa=True)
     elif mode == "test_math500":
         mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, only_math500=True)
+    elif mode == "test_livecodebench":
+        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, only_livecodebench=True)   
     else:
-        raise ValueError("Invalid mode specified. Choose from 'test_openr1', 'test_aime', 'test_arc', or 'test_mmlu'.")
+        raise ValueError("Invalid mode specified. Choose from 'test_openr1', 'test_aime', 'test_gpqa', 'test_math500', 'test_livecodebench', 'test_arc', or 'test_mmlu'.")
 
     assert len(mode_job) > 0, "No job commands generated. Please check the mode and checkpoints."
     jobs_text = "\n".join(mode_job)
