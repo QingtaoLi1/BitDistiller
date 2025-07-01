@@ -1,6 +1,12 @@
 # Train & Test Pipeline
 
-### BitDistiller Training
+## BitDistiller Training
+
+### Step 1: Asymmetric Quantization & Step 2. Generating Teacher Data
+
+See [readme.md](readme.md).
+
+### Step 3: KD-base QAT
 
 See [sing_train_bd_whitney.yaml](scripts/sing/sing_train_bd_whitney.yaml).
 
@@ -13,7 +19,8 @@ amlt run ./scripts/sing/sing_train_bd_whitney.yaml -d <job_description> -y
 
 For different experiments, modify the `./train.sh xxx` command arguments in the YAML file.
 
-### BitDistiller and OpenR1 Testing
+
+## BitDistiller and OpenR1 Testing
 
 BitDistiller Testing (MMLU, Arc-Challenge, Hellaswag, Piqa, Winogrande) and OpenR1 Testing (AIME'24, GPQA-diamond, Math500, livecodebench).
 
@@ -36,7 +43,7 @@ python ./scripts/sing/generate_sing_yaml.py --vc=msrresrchbasicvc --mode="test_m
 For more details, run `python ./scripts/sing/generate_sing_yaml.py --help` or read the source file.
 
 
-### OpenR1 Training (GRPO)
+## OpenR1 Training (GRPO)
 
 To be examined. [sing_train_grpo_whitney.yaml](scripts/sing/sing_train_grpo_whitney.yaml)
 
