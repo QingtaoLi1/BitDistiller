@@ -10,6 +10,8 @@ See [readme.md](readme.md).
 
 See [sing_train_bd_whitney.yaml](scripts/sing/sing_train_bd_whitney.yaml).
 
+⚠ Note: You need to change the mounted Azure Storage Blob before running! They are all under the `storage` tag in the YAML file.
+
 To submit singularity job, run:
 ```shell
 amlt run ./scripts/sing/sing_train_bd_whitney.yaml -d <job_description> -y
