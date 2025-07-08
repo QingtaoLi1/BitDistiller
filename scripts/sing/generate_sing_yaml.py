@@ -140,7 +140,7 @@ target:
   workspace_name: dca-singularity
 
 environment:
-  image: amlt-sing/acpt-torch2.5.0-py3.10-cuda12.4-ubuntu22.04
+  image: amlt-sing/acpt-torch2.6.0-py3.10-cuda12.6-ubuntu22.04
   setup: {mode_env}
 
 storage:
