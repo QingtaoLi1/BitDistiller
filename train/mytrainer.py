@@ -24,10 +24,10 @@ from transformers.trainer_pt_utils import (
 mse_loss = MSELoss()
 
 import os
+import sys
 BITDISTILLER_DEBUG = os.environ.get("BITDISTILLER_DEBUG", "0") == "1"
 
 
-import os
 INT_MAX = 2_147_483_647
 def check_for_nan_or_inf(tensor, name=""):
     if int(os.environ.get('LOCAL_RANK', '0')) != 0:
@@ -55,6 +55,13 @@ def check_for_nan_or_inf(tensor, name=""):
 
         # Identify invalid entries in chunk
         invalid_mask = ~torch.isfinite(chunk)
+        # out_of_range_mask = (~invalid_mask) & ((chunk < -1) | (chunk > 1))
+        # num_out_of_range = out_of_range_mask.sum().item()
+        # print(f"    Number of finite values not in [-1, 1]: {num_out_of_range}")
+        # if num_out_of_range > 0:
+        #     out_of_range_values = chunk[out_of_range_mask][:32]
+        #     print("    First 32 finite values out of range:")
+        #     print(out_of_range_values)
         if invalid_mask.any():
             bad_indices = torch.nonzero(invalid_mask, as_tuple=False).squeeze()
             print(f"  Chunk [{chunk_start}:{chunk_end}] has {bad_indices.numel()} invalid entries:", file=sys.stderr)
@@ -84,24 +91,42 @@ class KDTrainer(Trainer):
     def cakld_loss(self, labels, student_logits, teacher_logits, beta_prob):
         mask = (labels != -100)
 
+        if BITDISTILLER_DEBUG:
+            for name, param in self.model.named_parameters():
+                if name == "lm_head.weight":
+                    temp = param.flatten()
+                    indicess = [252242294, 252242428, 252242438, 252242864, 252243310, 252243468, 252243794, 252244596, 252244804, 252245202]
+                    for idx in indicess:
+                        print(f"{name}: {idx} = {temp[idx]}")
+                if param.requires_grad:
+                    param.register_hook(lambda grad, name=name: check_for_nan_or_inf(grad, f"{name}.grad"))
+                    check_for_nan_or_inf(param, name)
+            check_for_nan_or_inf(student_logits, "student_logits")
+            check_for_nan_or_inf(teacher_logits, "teacher_logits")
+
         teacher_output_log_prob = F.log_softmax(teacher_logits, dim=2)
         if BITDISTILLER_DEBUG:
             teacher_output_log_prob.requires_grad_()
-            teacher_output_log_prob.register_hook(lambda grad: check_for_nan_or_inf(grad, "teacher_output_log_prob"))
+            teacher_output_log_prob.register_hook(lambda grad: check_for_nan_or_inf(grad, "teacher_output_log_prob.grad"))
+            check_for_nan_or_inf(teacher_output_log_prob, "teacher_output_log_prob")
         student_output_log_prob = F.log_softmax(student_logits, dim=2)
         if BITDISTILLER_DEBUG:
-            student_output_log_prob.register_hook(lambda grad: check_for_nan_or_inf(grad, "student_output_log_prob"))
+            student_output_log_prob.register_hook(lambda grad: check_for_nan_or_inf(grad, "student_output_log_prob.grad"))
+            check_for_nan_or_inf(student_output_log_prob, "student_output_log_prob")
         reverse_kl = F.kl_div(teacher_output_log_prob, student_output_log_prob, reduction="none", log_target=True).sum(-1)
         if BITDISTILLER_DEBUG:
-            reverse_kl.register_hook(lambda grad: check_for_nan_or_inf(grad, "reverse_kl"))
+            reverse_kl.register_hook(lambda grad: check_for_nan_or_inf(grad, "reverse_kl.grad"))
+            check_for_nan_or_inf(reverse_kl, "reverse_kl")
         forward_kl = F.kl_div(student_output_log_prob, teacher_output_log_prob, reduction="none", log_target=True).sum(-1)
         if BITDISTILLER_DEBUG:
-            forward_kl.register_hook(lambda grad: check_for_nan_or_inf(grad, "forward_kl"))
+            forward_kl.register_hook(lambda grad: check_for_nan_or_inf(grad, "forward_kl.grad"))
+            check_for_nan_or_inf(forward_kl, "forward_kl")
 
         kl_loss = beta_prob * reverse_kl + (1 - beta_prob) * forward_kl
         kl_loss *= mask
         if BITDISTILLER_DEBUG:
-            kl_loss.register_hook(lambda grad: check_for_nan_or_inf(grad, "kl_loss"))
+            kl_loss.register_hook(lambda grad: check_for_nan_or_inf(grad, "kl_loss.grad"))
+            check_for_nan_or_inf(kl_loss, "kl_loss")
         kl_loss = kl_loss.sum(-1).mean()
         return kl_loss
 
