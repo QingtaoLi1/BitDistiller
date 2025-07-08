@@ -3,7 +3,7 @@
 packaging
 # flash-attn==2.7.4.post1
 transformers==4.51.3
-deepspeed==0.15.4
+# deepspeed==0.15.4
 accelerate==1.2.0
 peft==0.5.0
 numpy==1.26.4
