@@ -27,6 +27,7 @@ environment:
     - cd /scratch/amlt_code
     - uv pip install -r ./requirement_20250507_transformers_4.51.3.txt
     - uv pip install flash-attn==2.7.4.post1 --no-build-isolation
+    - DS_BUILD_CPU_ADAM=1 DS_BUILD_FUSED_ADAM=1 DS_BUILD_TRANSFORMER=1 pip install deepspeed==0.15.4
 
     - echo -e "alias ll='ls -al'" >> ~/.bashrc
 
@@ -58,7 +59,7 @@ data:
 
 
 jobs:
-- name: bd_MI300_qwen3_14b_ckpt0
+- name: bd_MI300_qwen3_14b_nemotron_code_char64k_cakld_ctx16384_lr1e-6
   sku: 1x192G8-MI300X-IB-xGMI
   identity: managed
   submit_args:
@@ -68,7 +69,8 @@ jobs:
     - cd scripts/train
     - chmod +x ./train*.sh
     - export NCCL_DEBUG=INFO
-    - ./train.sh Qwen/Qwen3-14B /mnt/external/checkpoints/Qwen/Qwen3-14B/OpenR1-Math-220k_default_cakld_ctx4096/ /mnt/external/data/OpenR1-Math-220k/default.json /mnt/external/checkpoints/Qwen/Qwen3-14B/OpenR1-Math-220k_default_cakld_ctx4096/logs/ /mnt/external/data/clip_cache/Qwen/Qwen3-14B/int2-g64.pt 4096
+    - ./train_batch1.sh Qwen/Qwen3-14B /mnt/external/checkpoints/Qwen/Qwen3-14B/nemotron_code_char64k_cakld_ctx16384/ /mnt/external/data/nemotron/nemotron-sft-code-char64k_644k.jsonl /mnt/external/checkpoints/Qwen/Qwen3-14B/nemotron_code_char64k_cakld_ctx16384/logs/ /mnt/external/data/clip_cache/Qwen/Qwen3-14B/int2-g64.pt 16384
+
   tags: ["Debug:True"]
   priority: High
   azml_int: True
