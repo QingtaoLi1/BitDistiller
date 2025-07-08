@@ -45,4 +45,11 @@ sed -i '/"seed": config.seed,/a\
             "quant_type": config.quant_type,
 ' ../../venv_openr1/lib/python3.11/site-packages/lighteval/models/vllm/vllm_model.py
 
+sed -i '/^import os/i\
+from datasets import concatenate_datasets
+' ../../venv_openr1/lib/python3.11/site-packages/lighteval/utils/utils.py
+sed -i '/^[[:space:]]*if dataset_filter is not None:/i\
+    dataset = {split: concatenate_datasets([dataset[split]] * 4) for split in dataset.keys()}
+' ../../venv_openr1/lib/python3.11/site-packages/lighteval/utils/utils.py
+
 sed -i 's/codegen_pass@1:16/codegen_pass@1/g' ../../venv_openr1/lib/python3.11/site-packages/lighteval/tasks/extended/lcb/main.py
