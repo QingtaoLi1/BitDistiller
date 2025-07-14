@@ -6,6 +6,13 @@ import subprocess
 
 HF_token = ""
 
+sku_mapping = {
+    "msroctobasicvc": "NDAMv4",
+    "msroctovc": "NDv4",
+    "msrresrchbasicvc": "NC_A100_v4",
+    "msrresrchvc": "NC_A100_v4",
+}
+
 # YAML-formatted environment setup for different modes
 test_arc_mmlu_env = """
     - pwd
@@ -38,11 +45,12 @@ test_openr1_env = """
     - GIT_LFS_SKIP_SMUDGE=1 uv pip install -e ".[dev]"
     - uv pip install transformers==4.51.3
     - uv pip install flash-attn==2.7.4.post1 --no-build-isolation
+    - uv pip install datasets==3.6.0
 
     - echo -e "alias ll='ls -al'" >> ~/.bashrc
 """
 
-def get_test_arc_mmlu_commands(mode, model_info, model_dir, ckpts):
+def get_test_arc_mmlu_commands(mode, model_info, model_dir, ckpts, vc):
     if mode == "test_arc":
         py_command = f"python llm_eval.py --model $$CKPT_DIR --eval_tasks arc_challenge,winogrande,hellaswag,piqa --test_set --num_fewshot 0 --bits 2 --group_size 64 --quant_type int"
         log_file_name = "arc.log"
@@ -54,7 +62,7 @@ def get_test_arc_mmlu_commands(mode, model_info, model_dir, ckpts):
 
     command = f"""
 - name: bd_{mode}_{model_info}_{','.join(ckpts)}
-  sku: NC_A100_v4:G{num_ckpts if num_ckpts <= 2 else 4}
+  sku: {sku_mapping[vc]}:G{num_ckpts if num_ckpts <= 2 else 4}
   identity: managed
   submit_args:
     env:
@@ -80,7 +88,7 @@ def get_test_arc_mmlu_commands(mode, model_info, model_dir, ckpts):
 """
     return [command]
 
-def get_test_openr1_commands(mode, model_info, model_dir, ckpts, only_aime=False, only_gpqa=False, only_math500=False, only_livecodebench=False):
+def get_test_openr1_commands(mode, model_info, model_dir, ckpts, vc, only_aime=False, only_gpqa=False, only_math500=False, only_livecodebench=False):
     tasks = ["custom|aime24|0|0", "custom|gpqa:diamond|0|0", "custom|math_500|0|0", "extended|lcb:codegeneration|0|0"]
     if only_aime:
         tasks = ["custom|aime24|0|0"]
@@ -103,7 +111,7 @@ def get_test_openr1_commands(mode, model_info, model_dir, ckpts, only_aime=False
 
             command = f"""
 - name: bd_{mode}_{model_info}_{ckpt}_{task}
-  sku: NC_A100_v4:G4
+  sku: {sku_mapping[vc]}:G4
   identity: managed
   submit_args:
     env:
@@ -189,7 +197,7 @@ def comma_separated_list_ckpts(arg):
     return items
 
 parser = argparse.ArgumentParser(description="Generate Singularity YAML for Amulet job")
-parser.add_argument("--vc", type=str, required=True, choices=["msrresrchvc", "msrresrchbasicvc"], help="Virtual Cluster name")
+parser.add_argument("--vc", type=str, required=True, choices=["msrresrchvc", "msrresrchbasicvc", "msroctovc", "msroctobasicvc"], help="Virtual Cluster name")
 parser.add_argument("--mode", type=comma_separated_list_mode, required=True, help="Mode of the job. Valid options: " + ", ".join(valid_modes))
 parser.add_argument("--model_dir", type=str, required=True, help="Directory containing the model checkpoints")
 parser.add_argument("--ckpts", type=comma_separated_list_ckpts, required=True, help="Comma-separated list of checkpoints to use")
@@ -218,17 +226,17 @@ for mode in args.mode:
     mode_job = []
     if mode in ["test_arc", "test_mmlu"]:
         assert num_ckpts <= 4, "For 'test_arc', the number of checkpoints must be 4 or fewer."
-        mode_job = get_test_arc_mmlu_commands(mode, model_info, args.model_dir, args.ckpts)
+        mode_job = get_test_arc_mmlu_commands(mode, model_info, args.model_dir, args.ckpts, args.vc)
     elif mode == "test_openr1":
-        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts)
+        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, args.vc)
     elif mode == "test_aime":
-        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, only_aime=True)
+        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, args.vc, only_aime=True)
     elif mode == "test_gpqa":
-        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, only_gpqa=True)
+        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, args.vc, only_gpqa=True)
     elif mode == "test_math500":
-        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, only_math500=True)
+        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, args.vc, only_math500=True)
     elif mode == "test_livecodebench":
-        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, only_livecodebench=True)   
+        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, args.vc, only_livecodebench=True)
     else:
         raise ValueError("Invalid mode specified. Choose from 'test_openr1', 'test_aime', 'test_gpqa', 'test_math500', 'test_livecodebench', 'test_arc', or 'test_mmlu'.")
 
