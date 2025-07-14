@@ -250,7 +250,7 @@ if __name__ == '__main__':
     parser.add_argument('--seqlen', type=int, default=1024,
                         help="Length usage of each calibration data.")
     parser.add_argument("--calib_dataset", type=str, default="pile",
-            choices=["pile", "gsm8k","code"],
+            choices=["pile", "gsm8k","code","openr1_math","merged_gmc","nemotron_code","nemotron_math"],
             help="Where to extract calibration data from.",
         )
 
