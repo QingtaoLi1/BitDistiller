@@ -51,6 +51,16 @@ DEFAULT_BOS_TOKEN = "</s>"
 DEFAULT_UNK_TOKEN = "</s>"
 
 
+
+def arg_dict(arg: str) -> Dict[str, float]:
+    """Convert a JSON-like string of key-value pairs into a dictionary."""
+    if not arg:
+        return {}
+    if arg.startswith("{") and arg.endswith("}"):
+        return json.loads(arg)
+    else:
+        return dict(item.split("=") for item in arg.split(","))
+
 @dataclass
 class ModelArguments:
     model_name_or_path: Optional[str] = field(default="facebook/opt-125m")
@@ -108,6 +118,13 @@ class TrainingArguments(transformers.TrainingArguments):
     use_flash_attn: bool = field(
         default=False,
         metadata={"help": "Whether to use Flash Attention"}
+    )
+    lr_scheduler_kwargs: Optional[arg_dict] = field(
+        default=None,
+        metadata={
+            "help": "Additional kwargs for the learning rate scheduler. "
+            "This is a JSON string that will be parsed into a dictionary."
+        },
     )
 
 def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: str):
@@ -350,7 +367,7 @@ def hook_last_hidden(model : torch.nn.Module):
             module.register_full_backward_hook(bwd_hook)
 
 def train():
-    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    # os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
     parser = transformers.HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
