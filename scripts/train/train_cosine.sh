@@ -42,13 +42,11 @@ train.py \
     --save_steps 100 \
     --save_total_limit 300 \
     --learning_rate 1e-6 \
-    --lr_scheduler_type "cosine_with_min_lr" \
-    --lr_scheduler_kwargs '{"min_lr_rate": 0.01,"num_cycles": 3.5}' \
     --warmup_steps 100 \
     --weight_decay 0. \
     --logging_steps 1 \
     --report_to "tensorboard" \
-    --deepspeed config/zero.json \
+    --deepspeed config/zero_cosine.json \
     --bits 2 \
     --quant_type int2-asym \
     --q_group_size 64 \

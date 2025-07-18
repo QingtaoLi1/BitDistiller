@@ -14,11 +14,11 @@
     },
 
     "scheduler": {
-        "type": "WarmupLR",
+        "type": "WarmupCosineLR",
         "params": {
-            "warmup_min_lr": 1e-7,
-            "warmup_max_lr": 1e-6,
-            "warmup_num_steps": "auto"
+            "warmup_min_ratio": 0.1,
+            "warmup_num_steps": "auto",
+            "total_num_steps": 2109
         }
     },
 

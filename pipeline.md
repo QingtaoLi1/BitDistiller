@@ -21,6 +21,12 @@ amlt run ./scripts/sing/sing_train_bd_whitney.yaml -d <job_description> -y
 
 For different experiments, modify the `./train.sh xxx` command arguments in the YAML file.
 
+#### Cosine lr_scheduler
+
+See [train_cosine.sh](scripts/train/train_cosine.sh) and [zero_cosine.json](train/config/zero_cosine.json).
+
+⚠ Note: "total_num_steps" should be modified MANUALLY on different training dataset!
+
 
 ## BitDistiller and OpenR1 Testing
 
