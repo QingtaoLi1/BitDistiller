@@ -40,7 +40,7 @@ test_openr1_env = """
     - source venv_openr1/bin/activate
     - uv pip install --upgrade pip setuptools packaging wheel ninja
 
-    - uv pip install vllm==0.7.2
+    - uv pip install vllm==0.8.5.post1 lighteval==0.8.1
     - cd /scratch/amlt_code/test/3rdparty/open-r1
     - GIT_LFS_SKIP_SMUDGE=1 uv pip install -e ".[dev]"
     - uv pip install transformers==4.51.3
@@ -130,7 +130,12 @@ def get_test_openr1_commands(mode, model_info, model_dir, ckpts, vc, only_aime=F
     - export MODEL_DIR={model_dir}/checkpoint-{ckpt}/
     - export MODEL_ARGS="pretrained=$$MODEL_DIR,dtype=bfloat16,data_parallel_size=$$NUM_GPUS,max_model_length=32768,gpu_memory_utilization=0.9,generation_parameters={{max_new_tokens:32768,temperature:0.6,top_p:0.95}},bits=2,group_size=64,quant_type=int"
     - export OUTPUT_DIR=$$MODEL_DIR/evals
-    - lighteval vllm $$MODEL_ARGS "{task}" --custom-tasks src/open_r1/evaluate.py --use-chat-template --output-dir $$OUTPUT_DIR --save-details
+    # - export MODEL_ARGS="pretrained=$$MODEL_DIR,dtype=bfloat16,data_parallel_size=$$NUM_GPUS,max_model_length=32768,gpu_memory_utilization=0.9,generation_parameters={{max_new_tokens:32768,temperature:0.0,top_p:1,top_k:1}},bits=2,group_size=64,quant_type=int"
+    # - export OUTPUT_DIR=$$MODEL_DIR/evals_greedy
+    - VLLM_WORKER_MULTIPROC_METHOD=spawn lighteval vllm $$MODEL_ARGS "{task}" --custom-tasks src/open_r1/evaluate.py --use-chat-template --output-dir $$OUTPUT_DIR --save-details
+    # - cd /mnt/external
+    # - nohup python keep.py --gpus=4 --interval=0.2 >/dev/null 2>&1 &
+    # - sleep 100000000
   tags: ["Debug:False"]
   priority: High
   azml_int: True

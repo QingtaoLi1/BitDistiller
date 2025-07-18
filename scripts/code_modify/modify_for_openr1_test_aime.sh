@@ -45,7 +45,19 @@ sed -i '/"seed": config.seed,/a\
             "quant_type": config.quant_type,
 ' ../../venv_openr1/lib/python3.11/site-packages/lighteval/models/vllm/vllm_model.py
 
-sed -i '/^import os/i\
+# sed -i '/^[[:space:]]*model_name: str/a\
+#     bits: int = 2\
+#     group_size: int = 64\
+#     quant_type: str = None
+# ' ../../venv_openr1/lib/python3.11/site-packages/lighteval/models/vllm/vllm_model.py
+
+# sed -i '/"seed": int(config.seed),/a\
+#             "bits": int(config.bits),\
+#             "group_size": int(config.group_size),\
+#             "quant_type": config.quant_type,
+# ' ../../venv_openr1/lib/python3.11/site-packages/lighteval/models/vllm/vllm_model.py
+
+sed -i '/^import numpy as np/i\
 from datasets import concatenate_datasets
 ' ../../venv_openr1/lib/python3.11/site-packages/lighteval/utils/utils.py
 sed -i '/^[[:space:]]*if dataset_filter is not None:/i\
