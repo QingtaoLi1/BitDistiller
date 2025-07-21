@@ -1,40 +1,51 @@
 import os
 import re
-import ast
 import csv
 
-# Base path (adjust if different from previous)
-base_path = "/mnt/external/checkpoints/Qwen/Qwen3-8B/1b-grad-l3-r0.5_nokd_ctx4096"
-checkpoints = [400, 800, 1200, 1600, 2000, 2400, 2800, 3200, 3600, 3809]
 
-# Output CSV
-output_csv = os.path.join(base_path, "scores_mmlu.csv")
+benchmark_list = {
+    "/mnt/external/checkpoints/Qwen/Qwen3-14B/merged_gmc_90k_90k_90k_cakld_ctx4096_cosine":             list(range(100,2100,100)) + [2109],
+    "/mnt/external/checkpoints/Qwen/Qwen3-14B/merged_gmc_90k_90k_90k_cakld_ctx4096_cosine_cycle300":    list(range(100,2100,100)) + [2109],
+    "/mnt/external/checkpoints/Qwen/Qwen3-14B/nemotron_code_char16k_cakld_ctx4096_epoch4":              list(range(100,3000,100)),
+}
 
-# Store scores
-mmlu_scores = []
-valid_checkpoints = []
 
-for ckpt in checkpoints:
-    log_path = os.path.join(base_path, f"checkpoint-{ckpt}", "MMLU.log")
-    if not os.path.exists(log_path):
-        print(f"Warning: {log_path} not found.")
-        continue
+def extract_scores(base_path, checkpoints):
+    # Output CSV
+    output_csv = os.path.join(base_path, "scores_mmlu.csv")
 
-    with open(log_path, 'r') as f:
-        content = f.read()
+    # Store scores
+    mmlu_scores = []
+    valid_checkpoints = []
 
-    match = re.search(r"\{'mmlu-acc':\s*([0-9.]+)\}", content)
-    if match:
-        score = float(match.group(1))
-        mmlu_scores.append(f"{score:.6f}")
-        valid_checkpoints.append(ckpt)
-    else:
-        print(f"'mmlu-acc' not found in {log_path}")
+    for ckpt in checkpoints:
+        log_path = os.path.join(base_path, f"checkpoint-{ckpt}", "MMLU.log")
+        if not os.path.exists(log_path):
+            print(f"Warning: {log_path} not found.")
+            continue
 
-# Write CSV
-with open(output_csv, 'w', newline='') as f:
-    writer = csv.writer(f)
-    writer.writerow(['metric'] + [str(ckpt) for ckpt in valid_checkpoints])
-    writer.writerow(['mmlu-acc'] + mmlu_scores)
+        with open(log_path, 'r') as f:
+            content = f.read()
 
-print(f"\nDone. MMLU scores saved to '{output_csv}'. You can open it directly in Excel.")
+        match = re.search(r"\{'mmlu-acc':\s*([0-9.]+)\}", content)
+        if match:
+            score = float(match.group(1))
+            mmlu_scores.append(f"{score:.6f}")
+            valid_checkpoints.append(ckpt)
+        else:
+            print(f"'mmlu-acc' not found in {log_path}")
+
+    # Write CSV
+    with open(output_csv, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['metric'] + [str(ckpt) for ckpt in valid_checkpoints])
+        writer.writerow(['mmlu-acc'] + mmlu_scores)
+
+    print(f"Done. MMLU scores saved to '{output_csv}'. You can open it directly in Excel.\n")
+
+
+
+if __name__ == "__main__":
+    for base_path, checkpoints in benchmark_list.items():
+        print(f"Processing {base_path} with checkpoints {checkpoints}")
+        extract_scores(base_path, checkpoints)

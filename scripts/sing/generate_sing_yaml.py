@@ -110,7 +110,7 @@ def get_test_openr1_commands(mode, model_info, model_dir, ckpts, vc, only_aime=F
                 modify_script_name = "livecodebench"
 
             command = f"""
-- name: bd_{mode}_{model_info}_{ckpt}_{task}
+- name: bd_{mode}_{model_info}_{ckpt}
   sku: {sku_mapping[vc]}:G4
   identity: managed
   submit_args:
