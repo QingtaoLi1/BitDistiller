@@ -18,7 +18,7 @@
         "params": {
             "warmup_min_ratio": 0.1,
             "warmup_num_steps": "auto",
-            "total_num_steps": 2109
+            "total_num_steps": "auto"
         }
     },
 
