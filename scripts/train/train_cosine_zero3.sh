@@ -21,7 +21,7 @@ export WANDB_DISABLED=true
 cd "$(dirname "$0")/../../train"
 
 # CUDA_VISIBLE_DEVICES=0 python \
-deepspeed --hostfile=hostfile --include localhost:0,1,2,3,4,5,6,7 \
+deepspeed --hostfile=hostfile --include localhost:0,1,2,3 \
 train.py \
     --model_name_or_path $MODEL_PATH \
     --data_path $DATA_PATH \
@@ -33,7 +33,7 @@ train.py \
     --seed 42 \
     --per_device_train_batch_size 1 \
     --per_device_eval_batch_size 1 \
-    --gradient_accumulation_steps 16 \
+    --gradient_accumulation_steps 32 \
     --gradient_checkpointing True \
     --eval_strategy "steps" \
     --eval_steps 100 \
@@ -46,7 +46,7 @@ train.py \
     --weight_decay 0. \
     --logging_steps 1 \
     --report_to "tensorboard" \
-    --deepspeed config/zero_cosine.json \
+    --deepspeed config/zero3_cosine.json \
     --bits 2 \
     --quant_type int2-asym \
     --q_group_size 64 \
