@@ -9,7 +9,8 @@ HF_token = ""
 sku_mapping = {
     "msroctobasicvc": "NDAMv4",
     "msroctovc": "NDv4",
-    "msrresrchbasicvc": "NC_A100_v4",
+    # "msrresrchbasicvc": "NC_A100_v4",
+    "msrresrchbasicvc": "NDH100v5",
     "msrresrchvc": "NC_A100_v4",
 }
 
