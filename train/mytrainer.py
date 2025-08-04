@@ -87,7 +87,6 @@ class KDTrainer(Trainer):
         self.ce_loss_none = CrossEntropyLoss(reduction="none")
         ### self.topk = 256
 
-    ### def cakld_loss(self, labels, origin_student_logits, origin_teacher_logits, beta_prob):
     def cakld_loss(self, labels, student_logits, teacher_logits, beta_prob):
         mask = (labels != -100)
 
@@ -135,7 +134,6 @@ class KDTrainer(Trainer):
         student_prob = F.softmax(student_logits, dim=2)
         teacher_prob = F.softmax(teacher_logits, dim=2)
 
-        # TODO: check NAN problem of this loss
         c_prob = beta_prob * teacher_prob + (1-beta_prob) * student_prob
         c_log_prob = c_prob.log()
 
