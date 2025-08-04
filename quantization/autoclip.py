@@ -142,6 +142,7 @@ def run_clip(
     # patch layer 0 to catch input and kwargs
     layers[0] = Catcher(layers[0])
     try:
+        model = model.cuda()
         model(samples.to(next(model.parameters()).device))
     except ValueError:  # work with early exit
         pass
@@ -249,7 +250,7 @@ if __name__ == '__main__':
     parser.add_argument('--seqlen', type=int, default=1024,
                         help="Length usage of each calibration data.")
     parser.add_argument("--calib_dataset", type=str, default="pile",
-            choices=["pile", "gsm8k","code"],
+            choices=["pile", "gsm8k","code", "openr1_math", "merged_gmc", "nemotron_code", "nemotron_math", "epicoder"],
             help="Where to extract calibration data from.",
         )
 

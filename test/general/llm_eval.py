@@ -21,25 +21,29 @@ if __name__ == '__main__':
         '--model', type=str,
         help='LlaMa model to load; pass location of hugginface converted checkpoint.'
     )
+    parser.add_argument('--gptqmodel', type=bool, default=False, help='whether to evaluate a gptq model')
     parser.add_argument('--eval_tasks', type=str, help='evaluation tasks') # hendrycksTest-*; arc_challenge,winogrande,hellaswag,piqa
     parser.add_argument('--test_set', action="store_true", help='evaluation tasks')
     parser.add_argument('--batch_size', type=int, default=2, help='evaluation tasks')
     parser.add_argument('--bits', type=int, default=2, help='evaluation tasks')
     parser.add_argument('--group_size', type=int, default=128, help='evaluation tasks')
-    parser.add_argument('--quant_type', type=str, default="int", help='evaluation tasks')
+    parser.add_argument('--quant_type', type=str, default=None, help='evaluation tasks')
     parser.add_argument('--num_fewshot', type=int, default=0, help='evaluation tasks')
     args = parser.parse_args()
     print(args)
     if "hendrycksTest" not in args.eval_tasks:
         args.test_set = True
-    
-    
-    model = AutoModelForCausalLM.from_pretrained(args.model, 
-                                                torch_dtype=torch.bfloat16, 
-                                                use_safetensors=True,
-                                                device_map='auto'
-                                                )
-        
+
+    if args.gptqmodel:
+        from gptqmodel import GPTQModel
+        model = GPTQModel.from_quantized(args.model, device="cuda:0", trust_remote_code=True)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(args.model,
+                                                    torch_dtype=torch.bfloat16,
+                                                    use_safetensors=True,
+                                                    device_map='cuda:0',
+                                                    trust_remote_code=True)
+
     if args.quant_type is not None:
         q_config = {
             "zero_point": True,  # by default True
@@ -52,6 +56,12 @@ if __name__ == '__main__':
     tokenizer = AutoTokenizer.from_pretrained(args.model)
 
     model.eval()
+
+    prompt = "Once upon a time"
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    outputs = model.generate(**inputs, max_new_tokens=50)
+    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    print(response)
 
     task_names = utils.pattern_match(args.eval_tasks.split(","), tasks.ALL_TASKS)
 

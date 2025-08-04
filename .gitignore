@@ -10,7 +10,6 @@ test/humaneval/preds/
 train/ckpts/
 train/logs/
 
-data/
 
 inference/quant_cache/
 
@@ -68,3 +67,5 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+
+.vscode/

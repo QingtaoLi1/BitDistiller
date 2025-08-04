@@ -1,0 +1,3 @@
+[submodule "test/3rdparty/open-r1"]
+	path = test/3rdparty/open-r1
+	url = https://github.com/QingtaoLi1/open-r1.git

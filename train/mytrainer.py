@@ -23,6 +23,57 @@ from transformers.trainer_pt_utils import (
 
 mse_loss = MSELoss()
 
+import os
+import sys
+BITDISTILLER_DEBUG = os.environ.get("BITDISTILLER_DEBUG", "0") == "1"
+
+
+INT_MAX = 2_147_483_647
+def check_for_nan_or_inf(tensor, name=""):
+    if int(os.environ.get('LOCAL_RANK', '0')) != 0:
+        return
+    
+    if not torch.is_floating_point(tensor):
+        return  # skip int/bool tensors
+
+    if torch.isfinite(tensor).all():
+        return
+
+    print(f"\n[!] NaN or Inf detected in: {name}", file=sys.stderr)
+    print(f"    Shape: {tensor.shape}, Device: {tensor.device}", file=sys.stderr)
+    print("    Scanning in chunks for invalid values...", file=sys.stderr)
+
+    flat = tensor.detach().view(-1)
+    total_size = flat.numel()
+    chunk_size = INT_MAX // 4  # ~0.5B elements per chunk to stay safe
+    max_report = 10
+    found = 0
+
+    for chunk_start in range(0, total_size, chunk_size):
+        chunk_end = min(chunk_start + chunk_size, total_size)
+        chunk = flat[chunk_start:chunk_end]
+
+        # Identify invalid entries in chunk
+        invalid_mask = ~torch.isfinite(chunk)
+        # out_of_range_mask = (~invalid_mask) & ((chunk < -1) | (chunk > 1))
+        # num_out_of_range = out_of_range_mask.sum().item()
+        # print(f"    Number of finite values not in [-1, 1]: {num_out_of_range}")
+        # if num_out_of_range > 0:
+        #     out_of_range_values = chunk[out_of_range_mask][:32]
+        #     print("    First 32 finite values out of range:")
+        #     print(out_of_range_values)
+        if invalid_mask.any():
+            bad_indices = torch.nonzero(invalid_mask, as_tuple=False).squeeze()
+            print(f"  Chunk [{chunk_start}:{chunk_end}] has {bad_indices.numel()} invalid entries:", file=sys.stderr)
+            for idx in bad_indices:
+                global_idx = chunk_start + idx.item()
+                val = chunk[idx].item()
+                print(f"    [flat index {global_idx}] value: {val}", file=sys.stderr)
+                found += 1
+                if found >= max_report:
+                    raise ValueError(f"NaN or Inf detected in tensor: {name}")
+    raise ValueError(f"NaN or Inf detected in tensor: {name}")
+
 class KDTrainer(Trainer):
     def __init__(self, teacher_model, loss_type, mean_prob=0, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -34,25 +85,47 @@ class KDTrainer(Trainer):
         self.loss_type = loss_type
         self.mean_prob = mean_prob
         self.ce_loss_none = CrossEntropyLoss(reduction="none")
+        ### self.topk = 256
 
     def cakld_loss(self, labels, student_logits, teacher_logits, beta_prob):
         mask = (labels != -100)
 
-        # reverse
-        teacher_output_log_prob = F.log_softmax(teacher_logits, dim=2)
-        # Compute the softmax of the student's logits (approximate distribution)
-        student_output_soft = F.softmax(student_logits, dim=2)
-        # Calculate the reverse KL Divergence (KL(teacher_logits || student_logits))
-        reverse_kl = F.kl_div(teacher_output_log_prob, student_output_soft, reduction="none").sum(-1)
+        if BITDISTILLER_DEBUG:
+            for name, param in self.model.named_parameters():
+                if name == "lm_head.weight":
+                    temp = param.flatten()
+                    indicess = [252242294, 252242428, 252242438, 252242864, 252243310, 252243468, 252243794, 252244596, 252244804, 252245202]
+                    for idx in indicess:
+                        print(f"{name}: {idx} = {temp[idx]}")
+                if param.requires_grad:
+                    param.register_hook(lambda grad, name=name: check_for_nan_or_inf(grad, f"{name}.grad"))
+                    check_for_nan_or_inf(param, name)
+            check_for_nan_or_inf(student_logits, "student_logits")
+            check_for_nan_or_inf(teacher_logits, "teacher_logits")
 
-        # forward
+        teacher_output_log_prob = F.log_softmax(teacher_logits, dim=2)
+        if BITDISTILLER_DEBUG:
+            teacher_output_log_prob.requires_grad_()
+            teacher_output_log_prob.register_hook(lambda grad: check_for_nan_or_inf(grad, "teacher_output_log_prob.grad"))
+            check_for_nan_or_inf(teacher_output_log_prob, "teacher_output_log_prob")
         student_output_log_prob = F.log_softmax(student_logits, dim=2)
-        teacher_output_soft = F.softmax(teacher_logits, dim=2)
-        # Calculate the reverse KL Divergence (KL(teacher_logits || student_logits))
-        forward_kl = F.kl_div(student_output_log_prob, teacher_output_soft, reduction="none").sum(-1)
+        if BITDISTILLER_DEBUG:
+            student_output_log_prob.register_hook(lambda grad: check_for_nan_or_inf(grad, "student_output_log_prob.grad"))
+            check_for_nan_or_inf(student_output_log_prob, "student_output_log_prob")
+        reverse_kl = F.kl_div(teacher_output_log_prob, student_output_log_prob, reduction="none", log_target=True).sum(-1)
+        if BITDISTILLER_DEBUG:
+            reverse_kl.register_hook(lambda grad: check_for_nan_or_inf(grad, "reverse_kl.grad"))
+            check_for_nan_or_inf(reverse_kl, "reverse_kl")
+        forward_kl = F.kl_div(student_output_log_prob, teacher_output_log_prob, reduction="none", log_target=True).sum(-1)
+        if BITDISTILLER_DEBUG:
+            forward_kl.register_hook(lambda grad: check_for_nan_or_inf(grad, "forward_kl.grad"))
+            check_for_nan_or_inf(forward_kl, "forward_kl")
 
         kl_loss = beta_prob * reverse_kl + (1 - beta_prob) * forward_kl
         kl_loss *= mask
+        if BITDISTILLER_DEBUG:
+            kl_loss.register_hook(lambda grad: check_for_nan_or_inf(grad, "kl_loss.grad"))
+            check_for_nan_or_inf(kl_loss, "kl_loss")
         kl_loss = kl_loss.sum(-1).mean()
         return kl_loss
 
@@ -78,10 +151,10 @@ class KDTrainer(Trainer):
         mask = (labels != -100)
 
         model_output_log_prob = F.log_softmax(student_logits, dim=2)
-        real_output_soft = F.softmax(teacher_logits / self.tmp, dim=2)
+        real_output_log_prob = F.log_softmax(teacher_logits / self.tmp, dim=2)
 
         # loss = F.kl_div(model_output_log_prob, real_output_soft, reduction="batchmean")
-        kl_loss = F.kl_div(model_output_log_prob, real_output_soft, reduction="none")
+        kl_loss = F.kl_div(model_output_log_prob, real_output_log_prob, reduction="none", log_target=True)
         kl_loss = kl_loss.sum(-1) * mask
         kl_loss = kl_loss.sum(-1).mean()
         return kl_loss
@@ -89,14 +162,11 @@ class KDTrainer(Trainer):
     def re_loss(self, labels, student_logits, teacher_logits):
         mask = (labels != -100)
 
-        # Compute the log probabilities of the teacher's logits (true distribution)
         teacher_output_log_prob = F.log_softmax(teacher_logits, dim=2)
-
-        # Compute the softmax of the student's logits (approximate distribution)
-        student_output_soft = F.softmax(student_logits, dim=2)
+        student_output_log_prob = F.log_softmax(student_logits, dim=2)
 
         # Calculate the reverse KL Divergence (KL(teacher_logits || student_logits))
-        kl_loss = F.kl_div(teacher_output_log_prob, student_output_soft, reduction="none")
+        kl_loss = F.kl_div(teacher_output_log_prob, student_output_log_prob, reduction="none", log_target=True)
         kl_loss = kl_loss.sum(-1) * mask
         kl_loss = kl_loss.sum(-1).mean()
         return kl_loss
@@ -123,7 +193,7 @@ class KDTrainer(Trainer):
     def mse_loss(self, student_logits, teacher_logits):
         return mse_loss(student_logits, teacher_logits)
     
-    def compute_loss(self, model, inputs, return_outputs=False):
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         with torch.no_grad():
             teacher_outputs = self.teacher_model(
                 **inputs

@@ -21,6 +21,8 @@ def get_wikitext2(nsamples, seed, seqlen, model):
 
     try:
         tokenizer = AutoTokenizer.from_pretrained(model, use_fast=False)
+        if isinstance(tokenizer, bool):
+            raise TypeError
     except:
         tokenizer = AutoTokenizer.from_pretrained(model, use_fast=True)
     trainenc = tokenizer("\n\n".join(traindata['text']), return_tensors='pt')
@@ -90,6 +92,13 @@ def llama_eval(model, testenc, dev, seqlen = 2048):
     attention_mask = cache['attention_mask']
     position_ids = cache['position_ids']
 
+    ### fit transformers==4.51.3 modeling_llama
+    # print(batch.dtype, batch)
+    # print(inps[0])
+    # embed_tokens = model.model.embed_tokens(batch.cpu())
+    # position_embeddings = model.model.rotary_emb(embed_tokens, position_ids.cpu())
+    # print(position_embeddings)
+
     for i in tqdm(range(len(layers))):
         # print('layer', i)
         layer = layers[i].to(dev)
@@ -97,6 +106,7 @@ def llama_eval(model, testenc, dev, seqlen = 2048):
         for j in range(nsamples):
             # print("dtype", inps[j].unsqueeze(0).dtype)
             outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
+            # outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids, position_embeddings=position_embeddings[j])[0]
         layers[i] = layer.cpu()
         del layer
         torch.cuda.empty_cache()
@@ -131,7 +141,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', default='meta-llama/Llama-2-7b-hf', type=str) # quant base model
     parser.add_argument('--dev', type=str, default="cuda:0")
-    parser.add_argument('--quant_type', type=str, default="int", help='Quantization data type')
+    parser.add_argument('--quant_type', type=str, default=None, help='Quantization data type')
     parser.add_argument('--bits', type=int, default=3, help='Quantization bits')
     parser.add_argument('--group_size', type=int, default=128, help='Quantization group size')
 
@@ -141,15 +151,16 @@ def main():
 
     print("loading the model...")
     model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16, use_safetensors=True, low_cpu_mem_usage=True)
-
-    q_config = {
-        "zero_point": True,  # by default True
-        "q_group_size": args.group_size,  # whether to use group quantization
-    }
     model = model.cuda()
-    pseudo_quantize_model_weight(
-        model, w_bit=args.bits, q_config=q_config, quant_type=args.quant_type
-    )
+
+    if args.quant_type is not None:
+        q_config = {
+            "zero_point": True,  # by default True
+            "q_group_size": args.group_size,  # whether to use group quantization
+        }
+        pseudo_quantize_model_weight(
+            model, w_bit=args.bits, q_config=q_config, quant_type=args.quant_type
+        )
 
     dev = torch.device(args.dev)
 

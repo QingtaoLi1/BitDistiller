@@ -1,0 +1,28 @@
+## This environment succeeds in Qwen2-7B.
+# conda install pytorch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 pytorch-cuda=12.1 -c pytorch -c nvidia
+packaging
+# flash-attn==2.7.4.post1
+transformers==4.45.2
+deepspeed==0.15.4
+accelerate==1.2.0
+peft==0.5.0
+numpy==1.26.4
+datasets==2.21.0
+
+# Below: not specific now, use the latest on 20250220.
+tensorboardX==2.6.2.2
+importlib-resources==6.5.2
+jsonlines==4.0.0
+numexpr==2.10.2
+omegaconf==2.3.0
+rouge-score==0.1.2
+sacrebleu==2.5.1
+scikit-learn==1.6.1
+sqlitedict==2.1.0
+tqdm-multiprocess==0.0.11
+zstandard==0.23.0
+# bitsandbytes==0.45.2
+fraction==2.2.0
+pycountry==24.6.1
+fsspec==2024.6.1
+einops==0.8.1

@@ -4,8 +4,10 @@ import torch.nn as nn
 from tqdm import tqdm
 import bitsandbytes as bnb
 from transformers import AutoModelForCausalLM, BitsAndBytesConfig
+import os
 import sys
-sys.path.append("../../quantization")
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "quantization"))
+# sys.path.append("../../quantization")
 from quantizer import *
 
 # from ppq.core import CUDA

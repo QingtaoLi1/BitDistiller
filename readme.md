@@ -179,6 +179,13 @@ Our results is running by following 3 steps:
   CUDA_VISIBLE_DEVICES=0 python llm_eval.py --model ../../train/ckpts/hf-llama-2-7b/int2-g128/checkpoint-200/ --eval_tasks arc_challenge,winogrande,hellaswag,piqa --test_set --bits 2 --group_size 128 --quant_type int --num_fewshot 0 
   ```
 
+* Test MMLU and Common-sense QA Tasks on Singularity
+  ```bash
+  python .\scripts\sing\generate_sing_yaml.py --vc=msrresrchbasicvc --mode=test_arc --model_dir="/mnt/external/checkpoints/Qwen/Qwen3-14B/1b-grad-l3-r0.5_cakld_ctx4096/" --ckpts="400,800,1200,1600"
+  python .\scripts\sing\generate_sing_yaml.py --vc=msrresrchbasicvc --mode=test_mmlu --model_dir="/mnt/external/checkpoints/Qwen/Qwen3-14B/1b-grad-l3-r0.5_cakld_ctx4096/" --ckpts="2000,2400"
+  python .\scripts\sing\generate_sing_yaml.py --vc=msrresrchvc --mode=test_openr1 --model_dir="/mnt/external/checkpoints/Qwen/Qwen3-14B/1b-grad-l3-r0.5_cakld_noclip_ctx4096/" --ckpts=400
+  ```
+
 </details>
 
 <details>

@@ -168,7 +168,7 @@ class GeneralHendrycksTest(MultipleChoiceTask):
     def fewshot_examples(self, k, rnd):
         # fewshot_examples is not just sampling from train_docs because dev is
         # in the same distribution as val/test but auxiliary_train isn't
-        print("dataset", self.dataset)
+        # print("dataset", self.dataset)
         if self._fewshot_docs is None:
             self._fewshot_docs = list(map(self._process_doc, self.dataset["dev"]))
 
