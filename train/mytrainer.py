@@ -2,6 +2,7 @@ import functools
 import inspect
 
 from collections import defaultdict
+import logging
 from typing import Any, Dict, List, Optional, Union
 import torch
 import random
@@ -28,6 +29,9 @@ import sys
 BITDISTILLER_DEBUG = os.environ.get("BITDISTILLER_DEBUG", "0") == "1"
 
 
+logger = logging.getLogger(__name__)
+
+
 INT_MAX = 2_147_483_647
 def check_for_nan_or_inf(tensor, name=""):
     if int(os.environ.get('LOCAL_RANK', '0')) != 0:
@@ -39,9 +43,9 @@ def check_for_nan_or_inf(tensor, name=""):
     if torch.isfinite(tensor).all():
         return
 
-    print(f"\n[!] NaN or Inf detected in: {name}", file=sys.stderr)
-    print(f"    Shape: {tensor.shape}, Device: {tensor.device}", file=sys.stderr)
-    print("    Scanning in chunks for invalid values...", file=sys.stderr)
+    logger.debug(f"\n[!] NaN or Inf detected in: {name}", file=sys.stderr)
+    logger.debug(f"    Shape: {tensor.shape}, Device: {tensor.device}", file=sys.stderr)
+    logger.debug("    Scanning in chunks for invalid values...", file=sys.stderr)
 
     flat = tensor.detach().view(-1)
     total_size = flat.numel()
@@ -64,11 +68,11 @@ def check_for_nan_or_inf(tensor, name=""):
         #     print(out_of_range_values)
         if invalid_mask.any():
             bad_indices = torch.nonzero(invalid_mask, as_tuple=False).squeeze()
-            print(f"  Chunk [{chunk_start}:{chunk_end}] has {bad_indices.numel()} invalid entries:", file=sys.stderr)
+            logger.debug(f"  Chunk [{chunk_start}:{chunk_end}] has {bad_indices.numel()} invalid entries:", file=sys.stderr)
             for idx in bad_indices:
                 global_idx = chunk_start + idx.item()
                 val = chunk[idx].item()
-                print(f"    [flat index {global_idx}] value: {val}", file=sys.stderr)
+                logger.debug(f"    [flat index {global_idx}] value: {val}", file=sys.stderr)
                 found += 1
                 if found >= max_report:
                     raise ValueError(f"NaN or Inf detected in tensor: {name}")
@@ -96,7 +100,7 @@ class KDTrainer(Trainer):
                     temp = param.flatten()
                     indicess = [252242294, 252242428, 252242438, 252242864, 252243310, 252243468, 252243794, 252244596, 252244804, 252245202]
                     for idx in indicess:
-                        print(f"{name}: {idx} = {temp[idx]}")
+                        logger.debug(f"{name}: {idx} = {temp[idx]}")
                 if param.requires_grad:
                     param.register_hook(lambda grad, name=name: check_for_nan_or_inf(grad, f"{name}.grad"))
                     check_for_nan_or_inf(param, name)

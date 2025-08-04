@@ -13,9 +13,10 @@ import torch
 import torch.nn as nn
 import transformers
 from torch.utils.data import Dataset, DataLoader
-from transformers import Trainer,BitsAndBytesConfig,default_data_collator
+from transformers import Trainer, BitsAndBytesConfig, default_data_collator
 from datasets import load_dataset
 import json
+import logging
 import glob
 import torch.distributed as dist
 
@@ -29,6 +30,14 @@ os.environ['NCCL_DEBUG'] = 'ERROR'
 os.environ['DEEPSPEED_LOG_LEVEL'] = 'WARNING'
 os.environ['PYTORCH_HIP_ALLOC_CONF'] = 'expandable_segments:True'
 BITDISTILLER_DEBUG = os.environ.get('BITDISTILLER_DEBUG', '0') == '1'
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+    datefmt="%m/%d/%Y %H:%M:%S",
+    level=logging.INFO,
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+logger = logging.getLogger(__name__)
 
 
 def _make_r_io_base(f, mode: str):
@@ -222,15 +231,15 @@ class SupervisedDataset(Dataset):
         if split == "train":
             self.sources, self.targets = self.sources[split_num:], self.targets[split_num:]
             if int(os.environ.get('LOCAL_RANK', '0')) == 0:
-                print(f"Using {len(self.sources)} samples to train")
+                logger.info(f"Using {len(self.sources)} samples to train")
 
-                # print("Example Data")
-                # print("sources: \n", self.sources[0])
-                # print("targets: \n", self.targets[0])
+                logger.debug("Example Data")
+                logger.debug("sources: \n", self.sources[0])
+                logger.debug("targets: \n", self.targets[0])
 
         elif split == "eval":
             self.sources, self.targets = self.sources[:split_num], self.targets[:split_num]
-            print(f"Using {len(self.sources)} samples to evaluation")
+            logger.info(f"Using {len(self.sources)} samples to evaluation")
 
     def __len__(self):
         return len(self.sources)
@@ -298,9 +307,9 @@ def check_for_nan_or_inf(tensor, name=""):
     if torch.isfinite(tensor).all():
         return
 
-    print(f"\n[!] NaN or Inf detected in: {name}", file=sys.stderr)
-    print(f"    Shape: {tensor.shape}, Device: {tensor.device}", file=sys.stderr)
-    print("    Scanning in chunks for invalid values...", file=sys.stderr)
+    logger.debug(f"\n[!] NaN or Inf detected in: {name}")
+    logger.debug(f"    Shape: {tensor.shape}, Device: {tensor.device}")
+    logger.debug("    Scanning in chunks for invalid values...")
 
     flat = tensor.detach().view(-1)
     total_size = flat.numel()
@@ -316,11 +325,11 @@ def check_for_nan_or_inf(tensor, name=""):
         invalid_mask = ~torch.isfinite(chunk)
         if invalid_mask.any():
             bad_indices = torch.nonzero(invalid_mask, as_tuple=False).squeeze()
-            print(f"  Chunk [{chunk_start}:{chunk_end}] has {bad_indices.numel()} invalid entries:", file=sys.stderr)
+            logger.debug(f"  Chunk [{chunk_start}:{chunk_end}] has {bad_indices.numel()} invalid entries:")
             for idx in bad_indices:
                 global_idx = chunk_start + idx.item()
                 val = chunk[idx].item()
-                print(f"    [flat index {global_idx}] value: {val}", file=sys.stderr)
+                logger.debug(f"    [flat index {global_idx}] value: {val}")
                 found += 1
                 if found >= max_report:
                     raise ValueError(f"NaN or Inf detected in tensor: {name}")
@@ -356,7 +365,7 @@ def add_nan_inf_hooks(model : torch.nn.Module):
 def hook_last_hidden(model : torch.nn.Module):
     for name, module in model.named_modules():
         if name.endswith("transformer.h.35") or name.endswith("model.layers.35"):
-            print(f"Registering backward hook on: {name}")
+            logger.debug(f"Registering backward hook on: {name}")
             def bwd_hook(mod, ginp, goutp):
                 for i, g in enumerate(ginp):
                     if isinstance(g, torch.Tensor):
@@ -387,7 +396,7 @@ def train():
         device_map = {'': local_rank}
         max_memory = {'': max_memory[local_rank]}
 
-    print(f"loading {model_args.model_name_or_path} model")
+    logger.info(f"Loading {model_args.model_name_or_path} model")
     if training_args.use_flash_attn:
         model = transformers.AutoModelForCausalLM.from_pretrained(
             model_args.model_name_or_path,
@@ -413,7 +422,7 @@ def train():
 
     pad_status = True
     if tokenizer.pad_token is None:
-        print("tokenizer has not padding token")
+        logger.info("Tokenizer has not padding token")
         pad_status = False
         smart_tokenizer_and_embedding_resize(
             special_tokens_dict=dict(pad_token=DEFAULT_PAD_TOKEN),
@@ -428,11 +437,12 @@ def train():
                 "unk_token": DEFAULT_UNK_TOKEN,
             }
         )
+        logger.info("Tokenizer has not padding token")
 
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
-    
+
     if training_args.quant_type is not None:
-        print("converting the model to qat, this may take a while...")
+        logger.info("Converting the model to qat, this may take a while...")
         model, _ = convertModelToQuant(model, compute_dtype=torch.bfloat16, quant_type=training_args.quant_type, q_group_size=training_args.q_group_size)
 
     if training_args.clip is not None:
@@ -440,14 +450,14 @@ def train():
         #     "zero_point": True,  # by default True
         #     "q_group_size": training_args.q_group_size,  # whether to use group quantization
         # }
-        print("Loading pre-computed Clipping results from", training_args.clip)
+        logger.info("Loading pre-computed Clipping results from", training_args.clip)
         clip_results = torch.load(training_args.clip)
         apply_clip(model, clip_results)
-        print("Clipping init successfully!")
+        logger.info("Clipping init successfully!")
     model.config.use_cache = False
 
     if training_args.train_kd:
-        print("loading Teacher Model...")
+        logger.info("loading Teacher Model...")
         if training_args.use_flash_attn:
             teacher_model = transformers.AutoModelForCausalLM.from_pretrained(
                 model_args.model_name_or_path,
@@ -480,11 +490,11 @@ def train():
                 model=teacher_model,
             )
         model.kd_loss_scale = 1.0
-        print("Teacher Model loaded")
+        logger.info("Teacher Model loaded")
 
         mean_prob=0
         if training_args.kd_loss_type == "cakld":
-            print("Get the main Prob!")
+            logger.info("Get the main Prob!")
             probDataloader = DataLoader(
                 data_module['train_dataset'],
                 shuffle=False,
@@ -508,12 +518,14 @@ def train():
             mean_prob = torch.Tensor(mean_prob.to(teacher_model.device))
             dist.all_reduce(mean_prob, op=dist.ReduceOp.SUM)
             mean_prob = mean_prob / dist.get_world_size()
-            print(f"Get the coefficient: {mean_prob}")
+            logger.info(f"Get the coefficient: {mean_prob}")
 
     if BITDISTILLER_DEBUG:    
         add_nan_inf_hooks(model)
         # hook_last_hidden(model)
 
+
+    logger.info("Starting trainer...")
     if training_args.train_kd:
         trainer = KDTrainer(model=model, tokenizer=tokenizer, teacher_model=teacher_model, loss_type=training_args.kd_loss_type, mean_prob=mean_prob, args=training_args, **data_module)
     else:
