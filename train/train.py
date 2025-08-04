@@ -452,7 +452,7 @@ def train():
         #     "zero_point": True,  # by default True
         #     "q_group_size": training_args.q_group_size,  # whether to use group quantization
         # }
-        logger.info("Loading pre-computed Clipping results from", training_args.clip)
+        logger.info(f"Loading pre-computed Clipping results from {training_args.clip}")
         clip_results = torch.load(training_args.clip)
         apply_clip(model, clip_results)
         logger.info("Clipping init successfully!")
