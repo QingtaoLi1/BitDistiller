@@ -1,31 +1,35 @@
-import functools
-import inspect
+# import functools
+# import inspect
+import logging
 
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Union
+# from typing import Any, Dict, List, Optional, Union
 import torch
-import random
-import numpy as np
-# from apex import amp
-# from fairscale.nn.data_parallel import (
-#     FullyShardedDataParallel as FullyShardedDDP,
-#     ShardedDataParallel as ShardedDDP,
-# )
-# from fairscale.nn.wrap import auto_wrap
-from torch import nn
+# import random
+# import numpy as np
+# # from apex import amp
+# # from fairscale.nn.data_parallel import (
+# #     FullyShardedDataParallel as FullyShardedDDP,
+# #     ShardedDataParallel as ShardedDDP,
+# # )
+# # from fairscale.nn.wrap import auto_wrap
+# from torch import nn
 from torch.nn import functional as F, MSELoss
 from torch.nn import CrossEntropyLoss, MSELoss
 from transformers import Trainer, set_seed
-from transformers.modeling_utils import PreTrainedModel, unwrap_model
-from transformers.trainer_pt_utils import (
-    get_module_class_from_name,
-)
+# from transformers.modeling_utils import PreTrainedModel, unwrap_model
+# from transformers.trainer_pt_utils import (
+#     get_module_class_from_name,
+# )
+import deepspeed
 
 mse_loss = MSELoss()
 
 import os
 import sys
 BITDISTILLER_DEBUG = os.environ.get("BITDISTILLER_DEBUG", "0") == "1"
+
+logger = logging.getLogger(__name__)
 
 
 INT_MAX = 2_147_483_647
@@ -194,11 +198,12 @@ class KDTrainer(Trainer):
         return mse_loss(student_logits, teacher_logits)
     
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
-        with torch.no_grad():
-            teacher_outputs = self.teacher_model(
-                **inputs
-                # **inputs, output_hidden_states=True, output_attentions=True
-            )
+        with deepspeed.zero.GatheredParameters(list(self.teacher_model.parameters()), modifier_rank=None):
+            with torch.no_grad():
+                teacher_outputs = self.teacher_model(
+                    **inputs
+                    # **inputs, output_hidden_states=True, output_attentions=True
+                )
         teacher_logits = teacher_outputs.get("logits")
         del teacher_outputs
 

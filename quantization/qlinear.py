@@ -1,6 +1,9 @@
 import torch
 from torch import Tensor, device, dtype, nn
 from quantizer import *
+import deepspeed
+from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled
+
 
 def convertModelToQuant(model,
                         modules_to_not_convert=["lm_head"],
@@ -19,17 +22,45 @@ def convertModelToQuant(model,
             weight = module.weight
             bias = module.bias
 
-            model._modules[name] = QLinear(
-                in_features,
-                out_features,
-                module.bias is not None,
-                compute_dtype=compute_dtype,
-                quant_type=quant_type,
-                q_group_size=q_group_size
-            )
+            # with maybe_zero3_gather():
+            if is_deepspeed_zero3_enabled():
+                if deepspeed.comm.get_rank() == 0:
+                    with deepspeed.zero.GatheredParameters(module.parameters(), modifier_rank=0):
+                        q_module = QLinear(
+                            in_features,
+                            out_features,
+                            bias is not None,
+                            compute_dtype=compute_dtype,
+                            quant_type=quant_type,
+                            q_group_size=q_group_size
+                        )
+                        q_module.weight = weight
+                        q_module.bias = bias
+                        setattr(model, name, q_module)
+            else:
+                q_module = QLinear(
+                    in_features,
+                    out_features,
+                    bias is not None,
+                    compute_dtype=compute_dtype,
+                    quant_type=quant_type,
+                    q_group_size=q_group_size
+                )
+                q_module.weight = weight
+                q_module.bias = bias
+                setattr(model, name, q_module)
 
-            model._modules[name].weight = weight
-            model._modules[name].bias = bias
+            # model._modules[name] = QLinear(
+            #     in_features,
+            #     out_features,
+            #     module.bias is not None,
+            #     compute_dtype=compute_dtype,
+            #     quant_type=quant_type,
+            #     q_group_size=q_group_size
+            # )
+            # model._modules[name].weight = weight
+            # model._modules[name].bias = bias
+
             has_been_replaced = True
             # Store the module class in case we need to transpose the weight later
             model._modules[name].source_cls = type(module)
