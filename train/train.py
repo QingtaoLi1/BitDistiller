@@ -395,23 +395,18 @@ def train():
         local_rank = int(os.environ.get('LOCAL_RANK', '0'))
         device_map = {'': local_rank}
         max_memory = {'': max_memory[local_rank]}
-
-    logger.info(f"Loading {model_args.model_name_or_path} model")
+    
     if training_args.use_flash_attn:
-        model = transformers.AutoModelForCausalLM.from_pretrained(
-            model_args.model_name_or_path,
-            torch_dtype=torch.bfloat16,
-            device_map=device_map,
-            attn_implementation="flash_attention_2",
-        )
+        attn_implementation = "flash_attention_2"
     else:
-        model = transformers.AutoModelForCausalLM.from_pretrained(
-            model_args.model_name_or_path,
-            torch_dtype=torch.bfloat16,
-            device_map=device_map,
-            attn_implementation='eager',
-        )
+        attn_implementation = "eager"
 
+    model_kwargs = {
+        "device_map": device_map,
+        "attn_implementation": attn_implementation,
+    }
+
+    logger.info(f"Loading tokenizer from {model_args.model_name_or_path}")
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
         cache_dir=training_args.cache_dir,
@@ -441,6 +436,13 @@ def train():
 
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
 
+    logger.info(f"Loading model from {model_args.model_name_or_path}")
+    model = transformers.AutoModelForCausalLM.from_pretrained(
+        model_args.model_name_or_path,
+        torch_dtype=torch.bfloat16,
+        **model_kwargs
+    )
+
     if training_args.quant_type is not None:
         logger.info("Converting the model to qat, this may take a while...")
         model, _ = convertModelToQuant(model, compute_dtype=torch.bfloat16, quant_type=training_args.quant_type, q_group_size=training_args.q_group_size)
@@ -458,26 +460,14 @@ def train():
 
     if training_args.train_kd:
         logger.info("loading Teacher Model...")
-        if training_args.use_flash_attn:
-            teacher_model = transformers.AutoModelForCausalLM.from_pretrained(
-                model_args.model_name_or_path,
-                load_in_4bit=False,
-                load_in_8bit=False,
-                torch_dtype=torch.bfloat16,
-                device_map=device_map,
-                max_memory=max_memory,
-                attn_implementation="flash_attention_2",
-            )
-        else:
-            teacher_model = transformers.AutoModelForCausalLM.from_pretrained(
-                model_args.model_name_or_path,
-                load_in_4bit=False,
-                load_in_8bit=False,
-                torch_dtype=torch.bfloat16,
-                device_map=device_map,
-                max_memory=max_memory,
-                attn_implementation='eager',
-            )
+        teacher_model = transformers.AutoModelForCausalLM.from_pretrained(
+            model_args.model_name_or_path,
+            load_in_4bit=False,
+            load_in_8bit=False,
+            torch_dtype=torch.bfloat16,
+            max_memory=max_memory,
+            **model_kwargs
+        )
         teacher_model.eval()
         teacher_model.cuda()
         for param in teacher_model.parameters():
