@@ -263,9 +263,8 @@ for mode in args.mode:
     shell_command = f"amlt run {output_file} -y -d \"{mode},{model_info}\""
     print("Shell command: ", shell_command)
 
-    process = subprocess.Popen(shell_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
     try:
+        process = subprocess.Popen(shell_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         stdout, stderr = process.communicate(timeout=180)
     except subprocess.TimeoutExpired:
         process.kill()
