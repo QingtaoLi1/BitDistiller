@@ -1,6 +1,6 @@
 import sys
 sys.path.append("../quantization")
-from qlinear import QLinear, convertModelToQuant
+from qlinear import convertModelToQuant
 from clip_utils import apply_clip
 
 import io
@@ -12,7 +12,7 @@ from tqdm import tqdm
 from typing import Dict
 
 import torch
-from torch.distributed.fsdp import fully_shard, FSDPModule, ShardingStrategy, CPUOffload
+from torch.distributed.fsdp import fully_shard, FSDPModule, ShardingStrategy, CPUOffload, MixedPrecisionPolicy
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 import torch.distributed as dist
 from torch.utils.data import DataLoader
@@ -28,14 +28,7 @@ from arguments import ModelArguments, DataArguments, TrainingArguments
 
 os.environ['NCCL_DEBUG'] = 'ERROR'
 os.environ['PYTORCH_HIP_ALLOC_CONF'] = 'expandable_segments:True'
-BITDISTILLER_DEBUG = os.environ.get('BITDISTILLER_DEBUG', '0') == '1'
-
-logging.basicConfig(
-    format=f"%(asctime)s - %(levelname)s - %(name)s - Rank {int(os.environ.get('LOCAL_RANK', '0'))} - %(message)s",
-    datefmt="%m/%d/%Y %H:%M:%S",
-    level=logging.INFO,
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
+from logger import BITDISTILLER_DEBUG, FSDP_DEBUG, log_info, log_bitdistiller_debug, log_fsdp_debug
 logger = logging.getLogger(__name__)
 
 
@@ -159,11 +152,21 @@ def train():
             torch_dtype=torch.bfloat16,
             **model_kwargs
         )
-        teacher_model.cuda()
-        # fully_shard(teacher_model)
-        teacher_model = FSDP(teacher_model,
-                             sharding_strategy=ShardingStrategy.FULL_SHARD,
-                             cpu_offload=CPUOffload(offload_params=True))
+        fsdp_kwargs = {
+            "reshard_after_forward": True,
+            "mp_policy": MixedPrecisionPolicy(
+                param_dtype=torch.bfloat16,
+                reduce_dtype=torch.float32,
+            )
+        }
+        for layer in teacher_model.model.layers:
+            fully_shard(layer, **fsdp_kwargs)
+        fully_shard(teacher_model.model, **fsdp_kwargs)
+        fully_shard(teacher_model, **fsdp_kwargs)
+        # teacher_model.cuda()
+        # teacher_model = FSDP(teacher_model,
+        #                      sharding_strategy=ShardingStrategy.FULL_SHARD,
+        #                      cpu_offload=CPUOffload(offload_params=True))
         teacher_model.eval()
         for param in teacher_model.parameters():
             param.requires_grad = False
@@ -192,12 +195,17 @@ def train():
                 if step > training_args.cakld_steps:
                     break
                 batch = {k: v.to(teacher_model.device) for k, v in batch.items()}
+                batch.pop("labels", None)
+                device = f"cuda:{int(os.environ.get('LOCAL_RANK', '0'))}"
+                log_fsdp_debug(logger, f"Coeff step {step}: before allocated memory = {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB")
                 with torch.no_grad():
                     outputs = teacher_model(**batch)
+                log_fsdp_debug(logger, f"Coeff step {step}: after allocated memory = {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB")
                 logits = outputs.get("logits").contiguous()
                 prob1 = torch.nn.functional.softmax(logits, dim=-1)
                 prob1 = torch.max(prob1, dim=-1).values
                 prob += prob1.mean()
+                del logits, outputs
             mean_prob = prob / training_args.cakld_steps
             mean_prob = torch.Tensor(mean_prob.to(teacher_model.device))
             dist.all_reduce(mean_prob, op=dist.ReduceOp.SUM)

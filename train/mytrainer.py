@@ -1,34 +1,18 @@
-import functools
-import inspect
-
-from collections import defaultdict
 import logging
-from typing import Any, Dict, List, Optional, Union
-import torch
-import random
-import numpy as np
+import os
+import sys
 # from apex import amp
 # from fairscale.nn.data_parallel import (
 #     FullyShardedDataParallel as FullyShardedDDP,
 #     ShardedDataParallel as ShardedDDP,
 # )
 # from fairscale.nn.wrap import auto_wrap
-from torch import nn
+import torch
 from torch.nn import functional as F, MSELoss
 from torch.nn import CrossEntropyLoss, MSELoss
-from transformers import Trainer, set_seed
-from transformers.modeling_utils import PreTrainedModel, unwrap_model
-from transformers.trainer_pt_utils import (
-    get_module_class_from_name,
-)
+from transformers import Trainer
 
-mse_loss = MSELoss()
-
-import os
-import sys
-BITDISTILLER_DEBUG = os.environ.get("BITDISTILLER_DEBUG", "0") == "1"
-
-
+from logger import BITDISTILLER_DEBUG, FSDP_DEBUG, log_fsdp_debug
 logger = logging.getLogger(__name__)
 
 
@@ -80,6 +64,7 @@ def check_for_nan_or_inf(tensor, name=""):
 
 class KDTrainer(Trainer):
     def __init__(self, teacher_model, loss_type, mean_prob=0, *args, **kwargs):
+        torch.cuda.memory._record_memory_history(max_entries=100000)
         super().__init__(*args, **kwargs)
         # self.tlsd = tsld_loss
         self.loss_fct_none = torch.nn.CrossEntropyLoss(reduction="none")
@@ -89,10 +74,21 @@ class KDTrainer(Trainer):
         self.loss_type = loss_type
         self.mean_prob = mean_prob
         self.ce_loss_none = CrossEntropyLoss(reduction="none")
+        self._mse_loss = MSELoss()
+
         ### self.topk = 256
 
     def cakld_loss(self, labels, student_logits, teacher_logits, beta_prob):
         mask = (labels != -100)
+
+        teacher_output_log_prob = F.log_softmax(teacher_logits, dim=2)
+        student_output_log_prob = F.log_softmax(student_logits, dim=2)
+        reverse_kl = F.kl_div(teacher_output_log_prob, student_output_log_prob, reduction="none", log_target=True).sum(-1)  # [batch_size, seq_len]
+        forward_kl = F.kl_div(student_output_log_prob, teacher_output_log_prob, reduction="none", log_target=True).sum(-1)
+
+        kl_loss = beta_prob * reverse_kl + (1 - beta_prob) * forward_kl
+        kl_loss *= mask
+        average_kl_loss = kl_loss.sum(-1).mean()
 
         if BITDISTILLER_DEBUG:
             for name, param in self.model.named_parameters():
@@ -107,31 +103,23 @@ class KDTrainer(Trainer):
             check_for_nan_or_inf(student_logits, "student_logits")
             check_for_nan_or_inf(teacher_logits, "teacher_logits")
 
-        teacher_output_log_prob = F.log_softmax(teacher_logits, dim=2)
-        if BITDISTILLER_DEBUG:
             teacher_output_log_prob.requires_grad_()
             teacher_output_log_prob.register_hook(lambda grad: check_for_nan_or_inf(grad, "teacher_output_log_prob.grad"))
             check_for_nan_or_inf(teacher_output_log_prob, "teacher_output_log_prob")
-        student_output_log_prob = F.log_softmax(student_logits, dim=2)
-        if BITDISTILLER_DEBUG:
+
             student_output_log_prob.register_hook(lambda grad: check_for_nan_or_inf(grad, "student_output_log_prob.grad"))
             check_for_nan_or_inf(student_output_log_prob, "student_output_log_prob")
-        reverse_kl = F.kl_div(teacher_output_log_prob, student_output_log_prob, reduction="none", log_target=True).sum(-1)
-        if BITDISTILLER_DEBUG:
+
             reverse_kl.register_hook(lambda grad: check_for_nan_or_inf(grad, "reverse_kl.grad"))
             check_for_nan_or_inf(reverse_kl, "reverse_kl")
-        forward_kl = F.kl_div(student_output_log_prob, teacher_output_log_prob, reduction="none", log_target=True).sum(-1)
-        if BITDISTILLER_DEBUG:
+
             forward_kl.register_hook(lambda grad: check_for_nan_or_inf(grad, "forward_kl.grad"))
             check_for_nan_or_inf(forward_kl, "forward_kl")
 
-        kl_loss = beta_prob * reverse_kl + (1 - beta_prob) * forward_kl
-        kl_loss *= mask
-        if BITDISTILLER_DEBUG:
             kl_loss.register_hook(lambda grad: check_for_nan_or_inf(grad, "kl_loss.grad"))
             check_for_nan_or_inf(kl_loss, "kl_loss")
-        kl_loss = kl_loss.sum(-1).mean()
-        return kl_loss
+
+        return average_kl_loss
 
     def jsd_loss(self, labels, student_logits, teacher_logits, beta_prob):
         mask = (labels != -100)
@@ -195,20 +183,26 @@ class KDTrainer(Trainer):
         return tsld_loss
 
     def mse_loss(self, student_logits, teacher_logits):
-        return mse_loss(student_logits, teacher_logits)
+        return self._mse_loss(student_logits, teacher_logits)
     
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        device = f"cuda:{int(os.environ.get('LOCAL_RANK', '0'))}"
+        log_fsdp_debug(logger, f"Allocated memory before forward pass: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB")
+
+        labels = inputs.pop('labels', None)  # remove labels from inputs to avoid passing them to the model
         with torch.no_grad():
             teacher_outputs = self.teacher_model(
                 **inputs
                 # **inputs, output_hidden_states=True, output_attentions=True
             )
+        log_fsdp_debug(logger, f"Allocated memory after teacher forward pass: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB")
         teacher_logits = teacher_outputs.get("logits")
         del teacher_outputs
 
         # forward pass
+        log_fsdp_debug(logger, f"Allocated memory before student forward pass: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB")
         student_outputs = model(**inputs)
-        # get attributes
+        log_fsdp_debug(logger, f"Allocated memory after student forward pass: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB")
         student_logits = student_outputs.get("logits")
 
         if not return_outputs:
@@ -220,19 +214,18 @@ class KDTrainer(Trainer):
         # raise 1
 
         kd_loss = 0.0
-        size_average = True
         if model.kd_loss_scale > 0.0:
             if self.loss_type == "reverse":
-                kd_loss = self.re_loss(inputs['labels'], student_logits, teacher_logits)
+                kd_loss = self.re_loss(labels, student_logits, teacher_logits)
             elif self.loss_type == "forward":
-                kd_loss = self.ce_loss(inputs['labels'], student_logits, teacher_logits)
+                kd_loss = self.ce_loss(labels, student_logits, teacher_logits)
             elif self.loss_type == "tlsd":
-                kd_loss = self.TLSD_loss(inputs['labels'], student_logits, teacher_logits)
+                kd_loss = self.TLSD_loss(labels, student_logits, teacher_logits)
             elif self.loss_type == "cakld":
-                kd_loss = self.cakld_loss(inputs['labels'], student_logits, teacher_logits, self.mean_prob)
+                kd_loss = self.cakld_loss(labels, student_logits, teacher_logits, self.mean_prob)
             elif self.loss_type == "jsd":
-                kd_loss = self.jsd_loss(inputs['labels'], student_logits, teacher_logits, 0.5)
-                
+                kd_loss = self.jsd_loss(labels, student_logits, teacher_logits, 0.5)
+        logger.info(f"Allocated memory after loss computation: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB")
         del teacher_logits
         del student_logits
 
