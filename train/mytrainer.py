@@ -64,7 +64,8 @@ def check_for_nan_or_inf(tensor, name=""):
 
 class KDTrainer(Trainer):
     def __init__(self, teacher_model, loss_type, mean_prob=0, *args, **kwargs):
-        torch.cuda.memory._record_memory_history(max_entries=100000)
+        if FSDP_DEBUG:
+            torch.cuda.memory._record_memory_history(max_entries=100000)
         super().__init__(*args, **kwargs)
         # self.tlsd = tsld_loss
         self.loss_fct_none = torch.nn.CrossEntropyLoss(reduction="none")
@@ -78,7 +79,7 @@ class KDTrainer(Trainer):
 
         ### self.topk = 256
 
-    def cakld_loss(self, labels, student_logits, teacher_logits, beta_prob):
+    def cakld_loss(self, labels, student_logits: torch.Tensor, teacher_logits: torch.Tensor, beta_prob):
         mask = (labels != -100)
 
         teacher_output_log_prob = F.log_softmax(teacher_logits, dim=2)
@@ -187,7 +188,7 @@ class KDTrainer(Trainer):
     
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         device = f"cuda:{int(os.environ.get('LOCAL_RANK', '0'))}"
-        log_fsdp_debug(logger, f"Allocated memory before forward pass: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB")
+        log_fsdp_debug(logger, f"Allocated memory before forward pass: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved(device) / 1024 ** 3:.2f} GB")
 
         labels = inputs.pop('labels', None)  # remove labels from inputs to avoid passing them to the model
         with torch.no_grad():
@@ -195,14 +196,14 @@ class KDTrainer(Trainer):
                 **inputs
                 # **inputs, output_hidden_states=True, output_attentions=True
             )
-        log_fsdp_debug(logger, f"Allocated memory after teacher forward pass: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB")
+        log_fsdp_debug(logger, f"Allocated memory after teacher forward pass: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved(device) / 1024 ** 3:.2f} GB")
         teacher_logits = teacher_outputs.get("logits")
         del teacher_outputs
 
         # forward pass
-        log_fsdp_debug(logger, f"Allocated memory before student forward pass: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB")
+        log_fsdp_debug(logger, f"Allocated memory before student forward pass: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved(device) / 1024 ** 3:.2f} GB")
         student_outputs = model(**inputs)
-        log_fsdp_debug(logger, f"Allocated memory after student forward pass: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB")
+        log_fsdp_debug(logger, f"Allocated memory after student forward pass: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved(device) / 1024 ** 3:.2f} GB")
         student_logits = student_outputs.get("logits")
 
         if not return_outputs:
@@ -225,7 +226,7 @@ class KDTrainer(Trainer):
                 kd_loss = self.cakld_loss(labels, student_logits, teacher_logits, self.mean_prob)
             elif self.loss_type == "jsd":
                 kd_loss = self.jsd_loss(labels, student_logits, teacher_logits, 0.5)
-        logger.info(f"Allocated memory after loss computation: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB")
+        log_fsdp_debug(logger, f"Allocated memory after loss computation: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved(device) / 1024 ** 3:.2f} GB")
         del teacher_logits
         del student_logits
 
