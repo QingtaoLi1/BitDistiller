@@ -197,10 +197,10 @@ def train():
                 batch = {k: v.to(teacher_model.device) for k, v in batch.items()}
                 batch.pop("labels", None)
                 device = f"cuda:{int(os.environ.get('LOCAL_RANK', '0'))}"
-                log_fsdp_debug(logger, f"Coeff step {step}: before allocated memory = {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB")
+                log_fsdp_debug(logger, f"Coeff step {step}: before allocated memory = {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved(device) / 1024 ** 3:.2f} GB")
                 with torch.no_grad():
                     outputs = teacher_model(**batch)
-                log_fsdp_debug(logger, f"Coeff step {step}: after allocated memory = {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB")
+                log_fsdp_debug(logger, f"Coeff step {step}: after allocated memory = {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved(device) / 1024 ** 3:.2f} GB")
                 logits = outputs.get("logits").contiguous()
                 prob1 = torch.nn.functional.softmax(logits, dim=-1)
                 prob1 = torch.max(prob1, dim=-1).values
@@ -224,10 +224,6 @@ def train():
         model, _ = convertModelToQuant(model, compute_dtype=torch.bfloat16, quant_type=training_args.quant_type, q_group_size=training_args.q_group_size)
 
     if training_args.clip is not None:
-        # q_config = {
-        #     "zero_point": True,  # by default True
-        #     "q_group_size": training_args.q_group_size,  # whether to use group quantization
-        # }
         logger.info(f"Loading pre-computed Clipping results from {training_args.clip}")
         clip_results = torch.load(training_args.clip)
         apply_clip(model, clip_results)
