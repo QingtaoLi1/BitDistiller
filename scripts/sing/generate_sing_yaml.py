@@ -9,8 +9,8 @@ HF_token = ""
 sku_mapping = {
     "msroctobasicvc": "NDAMv4",
     "msroctovc": "NDv4",
-    # "msrresrchbasicvc": "NC_A100_v4",
-    "msrresrchbasicvc": "NDH100v5",
+    "msrresrchbasicvc": "NC_A100_v4",
+    # "msrresrchbasicvc": "NDH100v5",
     "msrresrchvc": "NC_A100_v4",
 }
 
@@ -69,7 +69,7 @@ def get_test_arc_mmlu_commands(mode, model_info, model_dir, ckpts, vc):
     env:
       _AZUREML_SINGULARITY_JOB_UAI: "/subscriptions/656a79af-6a27-4924-ad92-9221860e3bba/resourceGroups/dca-core/providers/Microsoft.ManagedIdentity/userAssignedIdentities/dca-core-identity"
   command:
-    - huggingface-cli login --token {HF_token}
+    - hf auth login --token {HF_token} --add-to-git-credential
     - cd test/general
 """
     for i, ckpt in enumerate(ckpts):
@@ -154,7 +154,7 @@ target:
   workspace_name: dca-singularity
 
 environment:
-  image: amlt-sing/acpt-torch2.6.0-py3.10-cuda12.6-ubuntu22.04
+  image: amlt-sing/acpt-torch2.7.1-py3.10-cuda12.6-ubuntu22.04
   setup: {mode_env}
 
 storage:
@@ -273,9 +273,7 @@ for mode in args.mode:
     
     if process.returncode != 0:
         print(f"Error: Singularity command failed with return code {process.returncode}.")
-        for line in process.stdout:
-            print("STDOUT:", line.strip())
-        for line in process.stderr:
-            print("STDERR:", line.strip())
+        print("STDOUT:", stdout.strip())
+        print("STDERR:", stderr.strip())
     else:
         print("Singularity command executed successfully.")

@@ -17,7 +17,7 @@ export GLOO_SOCKET_IFNAME="lo"
 export NCCL_SOCKET_IFNAME="lo"
 export WANDB_DISABLED=true  
 
-cd "$(dirname "$0")/../../train"
+cd "$(dirname "$0")/../../../train"
 
 # CUDA_VISIBLE_DEVICES=0 python \
 deepspeed --hostfile=hostfile --include localhost:0,1,2,3,4,5,6,7 \
