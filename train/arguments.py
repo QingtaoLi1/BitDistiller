@@ -63,6 +63,10 @@ class TrainingArguments(transformers.TrainingArguments):
         default=None,
         metadata={"help": "Type of loss function when KD-QAT"}
     )
+    kd_loss_top_k: int = field(
+        default=0,
+        metadata={"help": "Top K logits to calculate loss. 0 means all logits."}
+    )
     cakld_steps: int = field(
         default=10,
         metadata={"help": "How many step to caculate the coefficient of CAKLD."}

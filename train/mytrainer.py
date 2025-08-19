@@ -63,7 +63,7 @@ def check_for_nan_or_inf(tensor, name=""):
     raise ValueError(f"NaN or Inf detected in tensor: {name}")
 
 class KDTrainer(Trainer):
-    def __init__(self, teacher_model, loss_type, mean_prob=0, *args, **kwargs):
+    def __init__(self, teacher_model, loss_type, mean_prob=0, kd_loss_top_k=0, *args, **kwargs):
         if FSDP_DEBUG:
             torch.cuda.memory._record_memory_history(max_entries=100000)
         super().__init__(*args, **kwargs)
@@ -77,10 +77,77 @@ class KDTrainer(Trainer):
         self.ce_loss_none = CrossEntropyLoss(reduction="none")
         self._mse_loss = MSELoss()
 
-        ### self.topk = 256
+        self.kd_loss_partial = not (kd_loss_top_k == 0)
+        self.topk = kd_loss_top_k
+        self.weight_mode = "dcg"  # "dcg" or "power_law"
+
+    def _top_weights_from_ranks(self, ranks: torch.Tensor) -> torch.Tensor:
+        """Compute top-heavy weights from integer ranks (1 = best)."""
+        ranks = ranks.float()
+        if self.weight_mode == "dcg":
+            return 1.0 / torch.log2(ranks + 1.0)
+        else:  # power law
+            return ranks.pow(-self.alpha)
+        
+    def cakld_loss_with_ranking(self, labels, student_logits: torch.Tensor, teacher_logits: torch.Tensor, beta_prob, beta2=0.1):
+        mask = (labels != -100)
+
+        if self.kd_loss_partial:
+            student_logits, top_k_indices = student_logits.topk(self.topk, dim=-1)
+            teacher_logits = teacher_logits.gather(-1, top_k_indices)
+
+        # Get ranking of logits
+        B, L, V = student_logits.shape
+        student_flat = student_logits.view(B*L, V)
+        teacher_flat = teacher_logits.view(B*L, V)
+
+        # Step 1: teacher ranks (1 = best)
+        sorted_idx = torch.argsort(teacher_flat, dim=-1, descending=True)
+        ranks = torch.empty_like(sorted_idx, dtype=torch.long)
+        ranks.scatter_(1, sorted_idx, torch.arange(1, V + 1, device=teacher_flat.device).unsqueeze(0).expand_as(sorted_idx))
+
+        # Step 2: pairwise comparisons per row
+        s_i = student_flat.unsqueeze(2)  # [N, V, 1]
+        s_j = student_flat.unsqueeze(1)  # [N, 1, V]
+        r_i = ranks.unsqueeze(2)         # [N, V, 1]
+        r_j = ranks.unsqueeze(1)         # [N, 1, V]
+
+        better_mask = (r_i < r_j)        # [N, V, V]
+        margin = s_i - s_j               # [N, V, V]
+
+        # Step 3: top-heavy weights
+        a = self._top_weights_from_ranks(ranks)  # [N, V]
+        w_ij = torch.where(better_mask, a.unsqueeze(2), a.unsqueeze(1))  # [N, V, V]
+
+        if FSDP_DEBUG:
+            torch.cuda.memory._dump_snapshot(f"/mnt/external/cuda_mem_snapshot/cakld_ranking_Rank{int(os.environ.get('LOCAL_RANK', 0))}.pickle")
+            torch.cuda.memory._record_memory_history(enabled=None)
+
+        # Step 4: pairwise logistic loss
+        loss_mat = torch.nn.functional.softplus(-margin)  # [N, V, V]
+        loss_per_row = (loss_mat * w_ij * better_mask).sum(dim=(1, 2)) / better_mask.sum(dim=(1, 2)).clamp_min(1)   # [N]
+
+        ## Calculate the CAKLD loss
+        teacher_output_log_prob = F.log_softmax(teacher_logits, dim=2)
+        student_output_log_prob = F.log_softmax(student_logits, dim=2)
+        reverse_kl = F.kl_div(teacher_output_log_prob, student_output_log_prob, reduction="none", log_target=True).sum(-1)  # [batch_size, seq_len]
+        forward_kl = F.kl_div(student_output_log_prob, teacher_output_log_prob, reduction="none", log_target=True).sum(-1)
+        kl_loss = beta_prob * reverse_kl + (1 - beta_prob) * forward_kl
+        kl_loss *= mask
+        average_kl_loss = kl_loss.sum(-1).mean()
+
+        logger.info(f"cakld_loss_with_ranking: average_kl_loss = {average_kl_loss}, average_ranking_loss = {loss_per_row.mean()}")
+
+        torch.cuda.empty_cache()  # Clear cache to avoid memory issues
+
+        return average_kl_loss + beta2 * loss_per_row.mean()
 
     def cakld_loss(self, labels, student_logits: torch.Tensor, teacher_logits: torch.Tensor, beta_prob):
         mask = (labels != -100)
+
+        if self.kd_loss_partial:
+            teacher_logits, top_k_indices = teacher_logits.topk(self.topk, dim=-1)
+            student_logits = student_logits.gather(-1, top_k_indices)
 
         teacher_output_log_prob = F.log_softmax(teacher_logits, dim=2)
         student_output_log_prob = F.log_softmax(student_logits, dim=2)
@@ -224,6 +291,8 @@ class KDTrainer(Trainer):
                 kd_loss = self.TLSD_loss(labels, student_logits, teacher_logits)
             elif self.loss_type == "cakld":
                 kd_loss = self.cakld_loss(labels, student_logits, teacher_logits, self.mean_prob)
+            elif self.loss_type == "cakld_ranking":
+                kd_loss = self.cakld_loss_with_ranking(labels, student_logits, teacher_logits, self.mean_prob)
             elif self.loss_type == "jsd":
                 kd_loss = self.jsd_loss(labels, student_logits, teacher_logits, 0.5)
         log_fsdp_debug(logger, f"Allocated memory after loss computation: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved(device) / 1024 ** 3:.2f} GB")
