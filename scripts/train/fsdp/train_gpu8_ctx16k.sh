@@ -29,9 +29,9 @@ train.py \
     --num_train_epochs 1 \
     --bf16 True \
     --seed 42 \
-    --per_device_train_batch_size 2 \
-    --per_device_eval_batch_size 2 \
-    --gradient_accumulation_steps 8 \
+    --per_device_train_batch_size 1 \
+    --per_device_eval_batch_size 1 \
+    --gradient_accumulation_steps 16 \
     --eval_strategy "steps" \
     --eval_steps 100 \
     --load_best_model_at_end True \
@@ -47,8 +47,11 @@ train.py \
     --quant_type int2-asym \
     --q_group_size 64 \
     --train_kd True \
-    --kd_loss_type "cakld_ranking" \
+    --kd_loss_type "cakld" \
     --kd_loss_top_k $KD_LOSS_TOP_K \
+    --ranking_type "dcg_pair_logistic" \
+    --ranking_R 32 \
+    --ranking_beta 10000 \
     --max_train_samples 999999 \
     --clip $CLIP_PATH \
     --use_flash_attn

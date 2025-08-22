@@ -248,6 +248,8 @@ def train():
     if training_args.train_kd:
         trainer = KDTrainer(model=model, tokenizer=tokenizer, teacher_model=teacher_model,
                             loss_type=training_args.kd_loss_type, kd_loss_top_k=training_args.kd_loss_top_k,
+                            ranking_type=training_args.ranking_type, ranking_R=training_args.ranking_R,
+                            ranking_beta=training_args.ranking_beta,
                             mean_prob=mean_prob, args=training_args, **data_module)
     else:
         trainer = Trainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)

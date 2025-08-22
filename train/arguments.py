@@ -71,6 +71,18 @@ class TrainingArguments(transformers.TrainingArguments):
         default=10,
         metadata={"help": "How many step to caculate the coefficient of CAKLD."}
     )
+    ranking_type: str = field(
+        default="dcg_pair_logistic",
+        metadata={"help": "Type of ranking loss to use. Should be one of [`dcg_pair_logistic`]."}
+    )
+    ranking_R: int = field(
+        default=32,
+        metadata={"help": "Top-R for ranking loss."}
+    )
+    ranking_beta: float = field(
+        default=10000,
+        metadata={"help": "Beta parameter for ranking loss."}
+    )
     use_flash_attn: bool = field(
         default=False,
         metadata={"help": "Whether to use Flash Attention"}
