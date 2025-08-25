@@ -243,6 +243,10 @@ def train():
         add_nan_inf_hooks(model)
         # hook_last_hidden(model)
 
+    logger.info("Waiting for other processes to synchronize...")
+    torch.distributed.barrier()
+    if int(os.environ.get('LOCAL_RANK', '0')) == 0:
+        logger.info(f"Training_args: {training_args}")
 
     logger.info("Starting trainer...")
     if training_args.train_kd:
