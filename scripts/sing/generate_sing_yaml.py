@@ -119,7 +119,7 @@ def get_test_openr1_commands(mode, model_info, model_dir, ckpts, vc, only_aime=F
       _AZUREML_SINGULARITY_JOB_UAI: "/subscriptions/656a79af-6a27-4924-ad92-9221860e3bba/resourceGroups/dca-core/providers/Microsoft.ManagedIdentity/userAssignedIdentities/dca-core-identity"
   command:
     - source venv_openr1/bin/activate
-    - huggingface-cli login --token {HF_token}
+    - hf auth login --token {HF_token}
 
     - cd /scratch/amlt_code/scripts/code_modify
     - chmod +x ./modify*.sh
