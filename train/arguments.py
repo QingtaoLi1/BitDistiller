@@ -72,8 +72,8 @@ class TrainingArguments(transformers.TrainingArguments):
         metadata={"help": "How many step to caculate the coefficient of CAKLD."}
     )
     ranking_type: str = field(
-        default="dcg_pair_logistic",
-        metadata={"help": "Type of ranking loss to use. Should be one of [`dcg_pair_logistic`]."}
+        default="none",
+        metadata={"help": "Type of ranking loss to use. Should be one of [`none`, `dcg_pair_logistic`]."}
     )
     ranking_R: int = field(
         default=32,
