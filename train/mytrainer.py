@@ -91,7 +91,7 @@ class KDTrainer(Trainer):
         self.ranking_type = ranking_type
         self.ranking_R = ranking_R  # Top-R for ranking loss
 
-        self.ranking_loss_func = lambda **_: 0.0
+        self.ranking_loss_func = lambda *args, **kwargs: 0.0
         self.ranking_beta = ranking_beta
         if self.ranking_type == "dcg_pair_logistic":
             self.ranking_loss_func = self.ranking_dcg_pair_logistic
