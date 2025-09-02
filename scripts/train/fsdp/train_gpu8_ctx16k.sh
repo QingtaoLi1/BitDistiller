@@ -33,10 +33,10 @@ train.py \
     --per_device_eval_batch_size 1 \
     --gradient_accumulation_steps 16 \
     --eval_strategy "steps" \
-    --eval_steps 100 \
+    --eval_steps 50 \
     --load_best_model_at_end True \
     --save_strategy "steps" \
-    --save_steps 100 \
+    --save_steps 50 \
     --save_total_limit 300 \
     --learning_rate 1e-6 \
     --warmup_steps 100 \
@@ -54,5 +54,6 @@ train.py \
     --ranking_beta 10000 \
     --max_train_samples 999999 \
     --clip $CLIP_PATH \
-    --use_flash_attn
+    --use_flash_attn \
+    --may_resume
 

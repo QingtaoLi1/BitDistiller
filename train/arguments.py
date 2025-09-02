@@ -94,3 +94,7 @@ class TrainingArguments(transformers.TrainingArguments):
             "This is a JSON string that will be parsed into a dictionary."
         },
     )
+    may_resume: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to resume training from the last checkpoint."}
+    )

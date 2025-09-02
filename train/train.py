@@ -19,6 +19,7 @@ from torch.utils.data import DataLoader
 
 import transformers
 from transformers import Trainer
+from transformers.trainer_utils import get_last_checkpoint
 
 from mytrainer import KDTrainer
 from data_loading import make_supervised_data_module
@@ -257,7 +258,14 @@ def train():
                             mean_prob=mean_prob, args=training_args, **data_module)
     else:
         trainer = Trainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
-    trainer.train()
+
+    if training_args.may_resume and get_last_checkpoint(training_args.output_dir) is not None:
+        logger.info(f"Resuming training from checkpoint: {get_last_checkpoint(training_args.output_dir)}")
+        trainer.train(resume_from_checkpoint=get_last_checkpoint(training_args.output_dir))
+    else:
+        logger.info(f"Starting training from scratch.")
+        trainer.train()
+
     trainer.save_state()
     safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir)
 
