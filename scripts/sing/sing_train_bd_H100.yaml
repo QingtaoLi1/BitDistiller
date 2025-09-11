@@ -16,17 +16,15 @@ environment:
     - source venv_bd/bin/activate
     - ls -l
     - uv pip install --upgrade pip setuptools packaging wheel ninja
-
-    # - uv pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1
     - cd /scratch/amlt_code
     - uv pip install -r ./requirement_20250807_fsdp.txt
-    - uv pip install flash-attn==2.7.4.post1 --no-build-isolation
+    - uv pip install /mnt/external/flash_attn-2.8.3+cu12torch2.8cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
 
     - echo -e "alias ll='ls -al'" >> ~/.bashrc
 
     - cd /scratch/amlt_code/scripts/code_modify
     - chmod +x ./modify*.sh
-    - ./modify_for_bd_train.sh
+    - ./modify_for_bd_train_fsdp.sh
 
 storage:
   input:
@@ -52,25 +50,68 @@ data:
 
 
 jobs:
-- name: bd_train_8xH100-IB-NvLink_qwen3_14b_V1_nemotron_code_cakld_ctx16384_test
+# - name: bd_train_8xH100-NvLink_qwen3_14b_V1_ctx16384_topk512
+#   # sku: 1x80G8-H100-NvLink
+#   sku: 1x80G8-H100-IB-NvLink
+#   identity: managed
+#   submit_args:
+#     env:
+#       _AZUREML_SINGULARITY_JOB_UAI: "/subscriptions/656a79af-6a27-4924-ad92-9221860e3bba/resourceGroups/dca-core/providers/Microsoft.ManagedIdentity/userAssignedIdentities/dca-core-identity"
+#   command:
+#     - cd scripts/train
+#     - chmod +x ./*/train*.sh
+#     - export NCCL_DEBUG=INFO
+#     - export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+
+#     ### V1.0 summary
+#     - cd fsdp
+#     - NCCL_DEBUG=INFO ./train_gpu8_ctx16k.sh /mnt/external/models/Qwen/Qwen3-14B /mnt/external/checkpoints/Qwen/Qwen3-14B/nemotron_code_cakld_ctx16384_H100_top512/ /mnt/external/data/nemotron/code/nemotron-sft-code_500K_block_0_repeat4.jsonl /mnt/external/checkpoints/Qwen/Qwen3-14B/nemotron_code_cakld_ctx16384_H100_top512/logs/ /mnt/external/data/clip_cache/Qwen/Qwen3-14B/int2-g64-code_nemotron.pt 16384 512
+
+#     - cd /mnt/external
+#     - nohup python keep.py --gpus=8 --interval=0.2 >/dev/null 2>&1 &
+#     - sleep 100000000
+#   tags: ["Debug:True"]
+#   priority: High
+#   azml_int: True
+
+# - name: bd_train_8xH100-IB_qwen3_14b_V1_ctx16384_topk512_ranking32
+#   sku: 1x80G8-H100-IB-NvLink
+#   identity: managed
+#   submit_args:
+#     env:
+#       _AZUREML_SINGULARITY_JOB_UAI: "/subscriptions/656a79af-6a27-4924-ad92-9221860e3bba/resourceGroups/dca-core/providers/Microsoft.ManagedIdentity/userAssignedIdentities/dca-core-identity"
+#   command:
+#     - cd scripts/train
+#     - chmod +x ./*/train*.sh
+#     - export NCCL_DEBUG=INFO
+#     - export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+
+#     ### V1.0 summary
+#     - cd fsdp
+#     - NCCL_DEBUG=INFO ./train_gpu8_ctx16k.sh /mnt/external/models/Qwen/Qwen3-14B /mnt/external/checkpoints/Qwen/Qwen3-14B/nemotron_code_cakld_ctx16384_H100_top512_ranking32/ /mnt/external/data/nemotron/code/nemotron-sft-code_500K_block_0_repeat4.jsonl /mnt/external/checkpoints/Qwen/Qwen3-14B/nemotron_code_cakld_ctx16384_H100_top512_ranking32/logs/ /mnt/external/data/clip_cache/Qwen/Qwen3-14B/int2-g64-code_nemotron.pt 16384 512
+
+#     - cd /mnt/external
+#     - nohup python keep.py --gpus=8 --interval=0.2 >/dev/null 2>&1 &
+#     - sleep 100000000
+#   tags: ["Debug:True"]
+#   priority: High
+#   azml_int: True
+
+- name: bd_train_8xH100-IB_qwen3_14b_V1_ctx16384_topk512_ranking32_A
   sku: 1x80G8-H100-IB-NvLink
   identity: managed
   submit_args:
     env:
       _AZUREML_SINGULARITY_JOB_UAI: "/subscriptions/656a79af-6a27-4924-ad92-9221860e3bba/resourceGroups/dca-core/providers/Microsoft.ManagedIdentity/userAssignedIdentities/dca-core-identity"
   command:
-    # - cd scripts/train
-    # - chmod +x ./train*.sh
-    # - export NCCL_DEBUG=INFO
+    - cd scripts/train
+    - chmod +x ./*/train*.sh
+    - export NCCL_DEBUG=INFO
+    - export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 
     ### V1.0 summary
-    # - ./train_cosine_zero3.sh Qwen/Qwen3-14B /mnt/external/checkpoints/Qwen/Qwen3-14B/nemotron_code_cakld_ctx32768/ /mnt/external/data/nemotron/code/nemotron-sft-code_500K_block_0.jsonl /mnt/external/checkpoints/Qwen/Qwen3-14B/nemotron_code_cakld_ctx32768/logs/ /mnt/external/data/clip_cache/Qwen/Qwen3-14B/int2-g64-code_nemotron.pt 32768
-    # - ./train_cosine_zero3.sh Qwen/Qwen3-14B /mnt/external/checkpoints/Qwen/Qwen3-14B/nemotron_code_cakld_ctx16384_test/ /mnt/external/data/nemotron/code/nemotron-sft-code_500K_block_0.jsonl /mnt/external/checkpoints/Qwen/Qwen3-14B/nemotron_code_cakld_ctx16384_test/logs/ /mnt/external/data/clip_cache/Qwen/Qwen3-14B/int2-g64-code_nemotron.pt 16384
-    # - ./train_cosine.sh Qwen/Qwen3-14B /mnt/external/checkpoints/Qwen/Qwen3-14B/nemotron_code_cakld_ctx16384/ /mnt/external/data/nemotron/code/nemotron-sft-code_500K_block_0_repeat4.jsonl /mnt/external/checkpoints/Qwen/Qwen3-14B/nemotron_code_cakld_ctx16384/logs/ /mnt/external/data/clip_cache/Qwen/Qwen3-14B/int2-g64-code_nemotron.pt 16384
-    - cd train
-    - unset NCCL_ASYNC_ERROR_HANDLING
-    - export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
-    - accelerate launch --config_file config/fsdp2.yaml train.py --model_name_or_path Qwen/Qwen3-14B  --data_path /mnt/external/data/nemotron/code/nemotron-sft-code_500K_block_0_repeat4.jsonl  --model_max_length 32768 --output_dir /mnt/external/checkpoints/Qwen/Qwen3-14B/nemotron_code_cakld_ctx32768_H100/  --logging_dir /mnt/external/checkpoints/Qwen/Qwen3-14B/nemotron_code_cakld_ctx32768_H100/logs/  --num_train_epochs 1  --bf16 True  --seed 42  --per_device_train_batch_size 1  --per_device_eval_batch_size 1  --gradient_accumulation_steps 16  --eval_strategy "steps"  --eval_steps 100  --load_best_model_at_end True  --save_strategy "steps"  --save_steps 100 --save_total_limit 300  --learning_rate 1e-6  --warmup_steps 100  --weight_decay 0.  --logging_steps 1  --report_to "tensorboard"  --bits 2  --quant_type int2-asym  --q_group_size 64  --train_kd True  --kd_loss_type "cakld"  --max_train_samples 999999  --clip /mnt/external/data/clip_cache/Qwen/Qwen3-14B/int2-g64-code_nemotron.pt  --use_flash_attn
+    - cd fsdp
+    - NCCL_DEBUG=INFO ./train_gpu8_ctx16k.sh /mnt/external/models/Qwen/Qwen3-14B /mnt/external/checkpoints/Qwen/Qwen3-14B/nemotron_code_cakld_ctx16384_H100_top512_ranking32_A/ /mnt/external/data/nemotron/code/nemotron-sft-code_500K_block_0_repeat4.jsonl /mnt/external/checkpoints/Qwen/Qwen3-14B/nemotron_code_cakld_ctx16384_H100_top512_ranking32_A/logs/ /mnt/external/data/clip_cache/Qwen/Qwen3-14B/int2-g64-code_nemotron.pt 16384 512
 
     - cd /mnt/external
     - nohup python keep.py --gpus=8 --interval=0.2 >/dev/null 2>&1 &
