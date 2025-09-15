@@ -9,11 +9,45 @@ HF_token = ""
 sku_mapping = {
     "msroctobasicvc": "NDAMv4",
     "msroctovc": "NDv4",
+
     # "msrresrchbasicvc": "NDAMv4",
-    "msrresrchbasicvc": "NC_A100_v4",
+    "msrresrchbWasicvc": "NC_A100_v4",
     # "msrresrchbasicvc": "NDH100v5",
+    # "msrresrchbasicvc": "NDv4",
+
     "msrresrchvc": "NC_A100_v4",
+    # "msrresrchvc": "NDv4",
 }
+
+instance_type_mapping = {
+    # A100 40GB
+    "NDv4": {
+        1: "ND12_v4",
+        2: "ND24_v4",
+        4: "ND48_v4",
+        8: "ND96_v4", # Only NvLink. "ND96rs_v4" or "ND96r_v4" for IB-NvLink.
+    },
+    # A100 80GB
+    "NDAMv4": {
+        1: "ND12am_A100_v4",
+        2: "ND24am_A100_v4",
+        4: "ND48am_A100_v4",
+        8: "ND96am_A100_v4", # Only NvLink. "ND96amrs_A100_v4" and "ND96amr_A100_v4" for IB-NvLink.
+    },
+    "NC_A100_v4": {
+        1: "NC24ad_A100_v4",
+        2: "NC48ad_A100_v4",
+        4: "NC96ad_A100_v4", # Only NvLink. No IB-NvLink.
+    },
+    # H100 80GB
+    "NDH100v5": {
+        1: "ND12_H100_v5",   # or "ND12_H100_v5-n1", same below.
+        2: "ND24_H100_v5",
+        4: "ND48_H100_v5",
+        8: "ND96_H100_v5",   # Only NvLink. "ND96r_H100_v5" for IB-NvLink.
+    },
+}
+
 
 # YAML-formatted environment setup for different modes
 test_arc_mmlu_env = """
@@ -61,10 +95,11 @@ def get_test_arc_mmlu_commands(mode, model_info, model_dir, ckpts, vc):
         log_file_name = "MMLU.log"
 
     num_ckpts = len(ckpts)
+    num_gpus = num_ckpts if num_ckpts <= 2 else 4
 
     command = f"""
 - name: bd_{mode}_{model_info}_{','.join(ckpts)}
-  sku: {sku_mapping[vc]}:G{num_ckpts if num_ckpts <= 2 else 4}
+  sku: {instance_type_mapping[sku_mapping[vc]][num_gpus]}
   identity: managed
   submit_args:
     env:
@@ -101,6 +136,8 @@ def get_test_openr1_commands(mode, model_info, model_dir, ckpts, vc, only_aime=F
     elif only_livecodebench:
         tasks = ["extended|lcb:codegeneration|0|0"]
 
+    num_gpus = 4
+
     commands = []
     for i, ckpt in enumerate(ckpts):
         for task in tasks:
@@ -113,7 +150,7 @@ def get_test_openr1_commands(mode, model_info, model_dir, ckpts, vc, only_aime=F
 
             command = f"""
 - name: bd_{mode}_{model_info}_{ckpt}
-  sku: {sku_mapping[vc]}:G2
+  sku: {instance_type_mapping[sku_mapping[vc]][num_gpus]}
   identity: managed
   submit_args:
     env:
@@ -127,7 +164,7 @@ def get_test_openr1_commands(mode, model_info, model_dir, ckpts, vc, only_aime=F
     - ./modify_for_openr1_test_{modify_script_name}.sh
 
     - cd /scratch/amlt_code/test/3rdparty/open-r1
-    - export NUM_GPUS=2
+    - export NUM_GPUS=4
 
     - export MODEL_DIR={model_dir}/checkpoint-{ckpt}/
     - export MODEL_ARGS="pretrained=$$MODEL_DIR,dtype=bfloat16,data_parallel_size=$$NUM_GPUS,max_model_length=32768,gpu_memory_utilization=0.9,generation_parameters={{max_new_tokens:32768,temperature:0.6,top_p:0.95}},bits=2,group_size=64,quant_type=int"
