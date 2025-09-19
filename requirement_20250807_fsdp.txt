@@ -29,3 +29,4 @@ fraction==2.2.0
 pycountry==24.6.1
 fsspec==2024.6.1
 einops==0.8.1
+click==8.2.1
