@@ -157,7 +157,7 @@ def convert_layer_to_gptq_format(hf_qweight_unpacked, hf_scales, hf_zero_points_
     return qweight_final, qzeros_final, scales_final, g_idx, bias_final
 
 
-def convert_hf_to_gptq(hf_model_path, save_path, bits=2, group_size=64):
+def convert_hf_to_gptq(hf_model_path, save_path, bits=2, group_size=64, output_fp16=False):
     """
     Loads a Hugging Face model, converts its linear layers to GPTQ format,
     and saves the new model.
@@ -243,6 +243,12 @@ def convert_hf_to_gptq(hf_model_path, save_path, bits=2, group_size=64):
             #     print(f"Could not convert layer {name}: {e}. Skipping...")
             #     exit()
 
+    if output_fp16:
+        for k in new_state_dict:
+            if isinstance(new_state_dict[k], torch.Tensor) and new_state_dict[k].dtype == torch.bfloat16:
+                new_state_dict[k] = new_state_dict[k].half()
+        model.config.torch_dtype = "float16"
+
     if not layer_prefixes_to_convert:
         print("No layers were converted. Please check your model structure and `get_hf_quant_params`.")
         return
@@ -318,6 +324,7 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description="Convert Hugging Face model to GPTQ format.")
     parser.add_argument('--hf_model_path', type=str, required=True, help='Path to the Hugging Face model directory.')
+    parser.add_argument('--use_fp16', action='store_true', help='Whether to save GPTQ weights in fp16 format to save space.')
     args = parser.parse_args()
 
     # --- YOU NEED TO CONFIGURE THESE ---
@@ -333,7 +340,7 @@ if __name__ == '__main__':
     print("           to correctly extract quantization parameters from your specific model.")
 
     # Example usage (ensure paths are correct and get_hf_quant_params is implemented):
-    convert_hf_to_gptq(HF_MODEL_PATH, GPTQ_SAVE_PATH, BITS, GROUP_SIZE)
+    convert_hf_to_gptq(HF_MODEL_PATH, GPTQ_SAVE_PATH, BITS, GROUP_SIZE, output_fp16=args.use_fp16)
     print("Conversion process finished.")
 
 
