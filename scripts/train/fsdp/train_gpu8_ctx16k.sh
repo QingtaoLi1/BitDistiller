@@ -31,12 +31,12 @@ train.py \
     --seed 42 \
     --per_device_train_batch_size 1 \
     --per_device_eval_batch_size 1 \
-    --gradient_accumulation_steps 16 \
+    --gradient_accumulation_steps 1 \
     --eval_strategy "steps" \
-    --eval_steps 50 \
+    --eval_steps 100 \
     --load_best_model_at_end True \
     --save_strategy "steps" \
-    --save_steps 50 \
+    --save_steps 100 \
     --save_total_limit 300 \
     --learning_rate 1e-6 \
     --warmup_steps 100 \
@@ -49,11 +49,12 @@ train.py \
     --train_kd True \
     --kd_loss_type "cakld" \
     --kd_loss_top_k $KD_LOSS_TOP_K \
-    --ranking_type "dcg_pair_logistic" \
-    --ranking_R 32 \
-    --ranking_beta 10000 \
     --max_train_samples 999999 \
     --clip $CLIP_PATH \
     --use_flash_attn \
-    --may_resume
+    --may_resume \
+    --use_teacher_entropy_coeff
 
+# --ranking_type "dcg_pair_logistic" \
+# --ranking_R 32 \
+# --ranking_beta 10000 \

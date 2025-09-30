@@ -63,7 +63,7 @@ def check_for_nan_or_inf(tensor, name=""):
     raise ValueError(f"NaN or Inf detected in tensor: {name}")
 
 class KDTrainer(Trainer):
-    def __init__(self, teacher_model, loss_type, mean_prob=0, kd_loss_top_k=0, ranking_type="none", ranking_R=32, ranking_beta=10000, *args, **kwargs):
+    def __init__(self, teacher_model, loss_type, mean_prob=0, kd_loss_top_k=0, ranking_type="none", ranking_R=32, ranking_beta=10000, use_teacher_entropy_coeff=False, *args, **kwargs):
         """
         Args:
             loss_type: Type of loss to use. Choices: ["reverse", "forward", "tlsd", "cakld", "cakld_ranking", "jsd"].
@@ -72,7 +72,9 @@ class KDTrainer(Trainer):
             ranking_R: Top-R for ranking loss.
         """
         if FSDP_DEBUG:
-            torch.cuda.memory._record_memory_history(max_entries=100000)
+            torch.cuda.memory._record_memory_history(max_entries=1000000)
+            # torch.cuda.memory._dump_snapshot(f"/mnt/external/cuda_mem_snapshot/cakld_ranking_Rank{int(os.environ.get('LOCAL_RANK', 0))}.pickle")
+            # torch.cuda.memory._record_memory_history(enabled=None)
         super().__init__(*args, **kwargs)
         # self.tlsd = tsld_loss
         self.loss_fct_none = torch.nn.CrossEntropyLoss(reduction="none")
@@ -95,6 +97,8 @@ class KDTrainer(Trainer):
         self.ranking_beta = ranking_beta
         if self.ranking_type == "dcg_pair_logistic":
             self.ranking_loss_func = self.ranking_dcg_pair_logistic
+        
+        self.use_teacher_entropy_coeff = use_teacher_entropy_coeff
 
 
     @staticmethod
@@ -120,7 +124,8 @@ class KDTrainer(Trainer):
         margin = s_i - s_j               # [N, R, R]
 
         # Step 3: top-heavy weights
-        a = 1.0 / torch.log2(ranks.float() + 1.0)  # [N, R]
+        # a = 1.0 / torch.log2(ranks.float() + 1.0)  # [N, R]
+        a = 1.0 / torch.pow(ranks.float(), 2)  # [N, R]
         w_ij = torch.where(better_mask, a.unsqueeze(2), a.unsqueeze(1))  # [N, R, R]
 
         if FSDP_DEBUG:
@@ -129,7 +134,7 @@ class KDTrainer(Trainer):
 
         # Step 4: pairwise logistic loss
         loss_mat = torch.nn.functional.softplus(-margin)  # [N, R, R]
-        loss_per_row = (loss_mat * w_ij * better_mask).sum(dim=(1, 2)) / better_mask.sum(dim=(1, 2)).clamp_min(1)   # [N]
+        loss_per_row = (loss_mat * w_ij * better_mask).sum(dim=(1, 2))   # [N]
         loss_per_row = loss_per_row.mean()
 
         return loss_per_row
@@ -150,6 +155,15 @@ class KDTrainer(Trainer):
         forward_kl = F.kl_div(student_output_log_prob, teacher_output_log_prob, reduction="none", log_target=True).sum(-1)
         kl_loss = beta_prob * reverse_kl + (1 - beta_prob) * forward_kl
         kl_loss *= mask
+        teacher_entropy = None
+        if self.use_teacher_entropy_coeff:
+            # teacher_entropy = F.cross_entropy(teacher_logits, teacher_logits, reduction="none").mean(-1) - forward_kl
+            teacher_output_log_prob = teacher_output_log_prob.detach()
+            student_output_log_prob = student_output_log_prob.detach()
+            teacher_entropy = -(teacher_output_log_prob * torch.exp(teacher_output_log_prob)).sum(-1)  # [batch_size, seq_len]
+            student_entropy = -(student_output_log_prob * torch.exp(student_output_log_prob)).sum(-1)  # [batch_size, seq_len]
+            kl_loss *= torch.abs(student_entropy - teacher_entropy)
+
         average_kl_loss = kl_loss.sum(-1).mean()
 
         if BITDISTILLER_DEBUG:
@@ -181,6 +195,7 @@ class KDTrainer(Trainer):
             kl_loss.register_hook(lambda grad: check_for_nan_or_inf(grad, "kl_loss.grad"))
             check_for_nan_or_inf(kl_loss, "kl_loss")
 
+        logger.info(f"LOSS: average_kl_loss = {average_kl_loss}, average_ranking_loss = {ranking_loss}, TE = {teacher_entropy}")
         torch.cuda.empty_cache()  # Clear cache to avoid memory issues
         return average_kl_loss + self.ranking_beta * ranking_loss
 
@@ -253,6 +268,7 @@ class KDTrainer(Trainer):
         log_fsdp_debug(logger, f"Allocated memory before forward pass: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved(device) / 1024 ** 3:.2f} GB")
 
         labels = inputs.pop('labels', None)  # remove labels from inputs to avoid passing them to the model
+        torch.cuda.empty_cache()
         with torch.no_grad():
             teacher_outputs = self.teacher_model(
                 **inputs
@@ -261,6 +277,7 @@ class KDTrainer(Trainer):
         log_fsdp_debug(logger, f"Allocated memory after teacher forward pass: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved(device) / 1024 ** 3:.2f} GB")
         teacher_logits = teacher_outputs.get("logits")
         del teacher_outputs
+        torch.cuda.empty_cache()
 
         # forward pass
         log_fsdp_debug(logger, f"Allocated memory before student forward pass: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved(device) / 1024 ** 3:.2f} GB")

@@ -83,6 +83,10 @@ class TrainingArguments(transformers.TrainingArguments):
         default=10000,
         metadata={"help": "Beta parameter for ranking loss."}
     )
+    use_teacher_entropy_coeff: bool = field(
+        default=False,
+        metadata={"help": "Whether to use teacher-entropy as token-level KD coefficient."}
+    )
     use_flash_attn: bool = field(
         default=False,
         metadata={"help": "Whether to use Flash Attention"}
