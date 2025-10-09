@@ -260,9 +260,14 @@ def train():
     else:
         trainer = Trainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
 
-    if training_args.may_resume and get_last_checkpoint(training_args.output_dir) is not None:
-        logger.info(f"Resuming training from checkpoint: {get_last_checkpoint(training_args.output_dir)}")
-        trainer.train(resume_from_checkpoint=get_last_checkpoint(training_args.output_dir))
+    try:
+        last_ckpt = get_last_checkpoint(training_args.output_dir)
+    except Exception as e:
+        last_ckpt = None
+    
+    if training_args.may_resume and last_ckpt is not None:
+        logger.info(f"Resuming training from checkpoint: {last_ckpt}")
+        trainer.train(resume_from_checkpoint=last_ckpt)
     else:
         logger.info(f"Starting training from scratch.")
         trainer.train()
