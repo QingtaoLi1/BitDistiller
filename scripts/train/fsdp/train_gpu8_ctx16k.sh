@@ -53,8 +53,9 @@ train.py \
     --clip $CLIP_PATH \
     --use_flash_attn \
     --may_resume \
-    --use_teacher_entropy_coeff
+    --use_token_curriculum
 
 # --ranking_type "dcg_pair_logistic" \
 # --ranking_R 32 \
 # --ranking_beta 10000 \
+# --use_teacher_entropy_coeff

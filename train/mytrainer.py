@@ -63,7 +63,8 @@ def check_for_nan_or_inf(tensor, name=""):
     raise ValueError(f"NaN or Inf detected in tensor: {name}")
 
 class KDTrainer(Trainer):
-    def __init__(self, teacher_model, loss_type, mean_prob=0, kd_loss_top_k=0, ranking_type="none", ranking_R=32, ranking_beta=10000, use_teacher_entropy_coeff=False, *args, **kwargs):
+    def __init__(self, teacher_model, loss_type, mean_prob=0, kd_loss_top_k=0, ranking_type="none", ranking_R=32, ranking_beta=10000,
+                 use_teacher_entropy_coeff=False, use_token_curriculum=False, *args, **kwargs):
         """
         Args:
             loss_type: Type of loss to use. Choices: ["reverse", "forward", "tlsd", "cakld", "cakld_ranking", "jsd"].
@@ -99,6 +100,7 @@ class KDTrainer(Trainer):
             self.ranking_loss_func = self.ranking_dcg_pair_logistic
         
         self.use_teacher_entropy_coeff = use_teacher_entropy_coeff
+        self.use_token_curriculum = use_token_curriculum
 
 
     @staticmethod
@@ -163,6 +165,13 @@ class KDTrainer(Trainer):
             teacher_entropy = -(teacher_output_log_prob * torch.exp(teacher_output_log_prob)).sum(-1)  # [batch_size, seq_len]
             student_entropy = -(student_output_log_prob * torch.exp(student_output_log_prob)).sum(-1)  # [batch_size, seq_len]
             kl_loss *= torch.abs(student_entropy - teacher_entropy)
+        token_curriculum_threshold = None
+        if self.use_token_curriculum:
+            teacher_output_log_prob = teacher_output_log_prob.detach()
+            teacher_entropy = -(teacher_output_log_prob * torch.exp(teacher_output_log_prob)).sum(-1)  # [batch_size, seq_len]
+            token_curriculum_threshold = torch.min(0.1 * torch.pow(torch.tensor(400), self.state.global_step / 1000), 1000)
+            token_curriculum_mask = (teacher_entropy < token_curriculum_threshold)
+            kl_loss *= token_curriculum_mask
 
         average_kl_loss = kl_loss.sum(-1).mean()
 
@@ -195,7 +204,7 @@ class KDTrainer(Trainer):
             kl_loss.register_hook(lambda grad: check_for_nan_or_inf(grad, "kl_loss.grad"))
             check_for_nan_or_inf(kl_loss, "kl_loss")
 
-        logger.info(f"LOSS: average_kl_loss = {average_kl_loss}, average_ranking_loss = {ranking_loss}, TE = {teacher_entropy}")
+        logger.info(f"LOSS: average_kl_loss = {average_kl_loss}, average_ranking_loss = {ranking_loss}, TE = {teacher_entropy}, TE threshold = {token_curriculum_threshold}")
         torch.cuda.empty_cache()  # Clear cache to avoid memory issues
         return average_kl_loss + self.ranking_beta * ranking_loss
 
