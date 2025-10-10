@@ -169,7 +169,7 @@ class KDTrainer(Trainer):
         if self.use_token_curriculum:
             teacher_output_log_prob = teacher_output_log_prob.detach()
             teacher_entropy = -(teacher_output_log_prob * torch.exp(teacher_output_log_prob)).sum(-1)  # [batch_size, seq_len]
-            token_curriculum_threshold = torch.min(0.1 * torch.pow(torch.tensor(400), self.state.global_step / 1000), 1000)
+            token_curriculum_threshold = min(0.01 * pow(1000, self.state.global_step / 400), 1000)
             token_curriculum_mask = (teacher_entropy < token_curriculum_threshold)
             kl_loss *= token_curriculum_mask
 
