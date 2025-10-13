@@ -97,11 +97,9 @@ def convert_layer_to_gptq_format(hf_qweight_unpacked, hf_scales, hf_zero_points_
     qweight_gptq_oriented = hf_qweight_unpacked.T.contiguous()
     # hf_scales: (out_features, in_features // group_size) -> (in_features // group_size, out_features)
     scales_gptq_oriented = hf_scales.contiguous().to(torch.bfloat16)
-    # hf_zero_points_unpacked: (out_features, in_features // group_size) -> (in_features // group_size, out_features)
-    zeropoints_gptq_oriented = hf_zero_points_unpacked.T.contiguous()
 
     # Validate zero points are in the correct range [0, 2^bits - 1]
-    if not ((zeropoints_gptq_oriented >= 0) & (zeropoints_gptq_oriented < (1 << bits))).all():
+    if not ((hf_zero_points_unpacked >= 0) & (hf_zero_points_unpacked < (1 << bits))).all():
         raise ValueError(f"Zero points must be in the range [0, { (1 << bits) -1}] for {bits}-bit quantization.")
 
     # 2. Pack qweight
@@ -125,8 +123,7 @@ def convert_layer_to_gptq_format(hf_qweight_unpacked, hf_scales, hf_zero_points_
         raise ValueError(f"out_features ({out_features}) must be divisible by pack_factor ({pack_factor}) for zero points")
 
     qzeros_final = torch.zeros((num_groups, out_features // pack_factor), dtype=torch.int32, device=device)
-    # Transpose zeropoints_gptq_oriented to (out_features, num_groups) to pack along out_features
-    zp_temp_oriented = zeropoints_gptq_oriented.T.contiguous() # Now shape (out_features, num_groups)
+    zp_temp_oriented = hf_zero_points_unpacked.contiguous() # shape (out_features, num_groups)
     # print(f"zp_temp_oriented shape: {zp_temp_oriented.shape}")
     # print(f"qzeros_final shape: {qzeros_final.shape}")
     for i in range(pack_factor):
