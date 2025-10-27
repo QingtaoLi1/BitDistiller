@@ -71,6 +71,7 @@ class TrainingArguments(transformers.TrainingArguments):
         default=10,
         metadata={"help": "How many step to caculate the coefficient of CAKLD."}
     )
+
     ranking_type: str = field(
         default="none",
         metadata={"help": "Type of ranking loss to use. Should be one of [`none`, `dcg_pair_logistic`]."}
@@ -83,14 +84,35 @@ class TrainingArguments(transformers.TrainingArguments):
         default=10000,
         metadata={"help": "Beta parameter for ranking loss."}
     )
+
     use_teacher_entropy_coeff: bool = field(
         default=False,
         metadata={"help": "Whether to use teacher-entropy as token-level KD coefficient."}
     )
-    use_token_curriculum: bool = field(
-        default=False,
-        metadata={"help": "Whether to use token-level teacher-entropy curriculum learning."}
+
+    token_curriculum: Optional[str] = field(
+        default=None,
+        metadata={"help": "The token-level teacher-entropy curriculum learning setting. "
+                  "If not set, no curriculum learning is used. Choices: [None, 'const', 'linear', 'exponential']. Default: None."}
     )
+    token_curriculum_min: Optional[float] = field(
+        default=None,
+        metadata={"help": "The minimum value of the token-level curriculum threshold. "
+                  "When exponential is used, this value will be used as the starting point. Default: None."}
+    )
+    token_curriculum_max: Optional[float] = field(
+        default=None,
+        metadata={"help": "The maximum value of the token-level curriculum threshold. Default: None."}
+    )
+    token_curriculum_exp_base: Optional[float] = field(
+        default=None,
+        metadata={"help": "The exponential base for exponential curriculum learning. Default: None."}
+    )
+    token_curriculum_end_step: Optional[int] = field(
+        default=None,
+        metadata={"help": "The step at which the token-level curriculum reaches its maximum threshold. Default: None."}
+    )
+
     use_flash_attn: bool = field(
         default=False,
         metadata={"help": "Whether to use Flash Attention"}
@@ -102,7 +124,7 @@ class TrainingArguments(transformers.TrainingArguments):
             "This is a JSON string that will be parsed into a dictionary."
         },
     )
-    may_resume: Optional[bool] = field(
+    may_resume: bool = field(
         default=False,
         metadata={"help": "Whether to resume training from the last checkpoint."}
     )

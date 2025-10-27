@@ -251,12 +251,8 @@ def train():
 
     logger.info("Starting trainer...")
     if training_args.train_kd:
-        trainer = KDTrainer(model=model, tokenizer=tokenizer, teacher_model=teacher_model,
-                            loss_type=training_args.kd_loss_type, kd_loss_top_k=training_args.kd_loss_top_k,
-                            ranking_type=training_args.ranking_type, ranking_R=training_args.ranking_R,
-                            ranking_beta=training_args.ranking_beta, use_teacher_entropy_coeff=training_args.use_teacher_entropy_coeff,
-                            use_token_curriculum=training_args.use_token_curriculum,
-                            mean_prob=mean_prob, args=training_args, **data_module)
+        trainer = KDTrainer(model=model, tokenizer=tokenizer, teacher_model=teacher_model, args=training_args,
+                            mean_prob=mean_prob, **data_module)
     else:
         trainer = Trainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
 

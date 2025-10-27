@@ -15,6 +15,8 @@ from transformers import Trainer
 from logger import BITDISTILLER_DEBUG, FSDP_DEBUG, log_fsdp_debug
 logger = logging.getLogger(__name__)
 
+from arguments import TrainingArguments
+
 
 INT_MAX = 2_147_483_647
 def check_for_nan_or_inf(tensor, name=""):
@@ -63,8 +65,7 @@ def check_for_nan_or_inf(tensor, name=""):
     raise ValueError(f"NaN or Inf detected in tensor: {name}")
 
 class KDTrainer(Trainer):
-    def __init__(self, teacher_model, loss_type, mean_prob=0, kd_loss_top_k=0, ranking_type="none", ranking_R=32, ranking_beta=10000,
-                 use_teacher_entropy_coeff=False, use_token_curriculum=False, *args, **kwargs):
+    def __init__(self, teacher_model, args: TrainingArguments, mean_prob=0, **kwargs):
         """
         Args:
             loss_type: Type of loss to use. Choices: ["reverse", "forward", "tlsd", "cakld", "cakld_ranking", "jsd"].
@@ -76,31 +77,35 @@ class KDTrainer(Trainer):
             torch.cuda.memory._record_memory_history(max_entries=1000000)
             # torch.cuda.memory._dump_snapshot(f"/mnt/external/cuda_mem_snapshot/cakld_ranking_Rank{int(os.environ.get('LOCAL_RANK', 0))}.pickle")
             # torch.cuda.memory._record_memory_history(enabled=None)
-        super().__init__(*args, **kwargs)
+        super().__init__(args=args, **kwargs)
         # self.tlsd = tsld_loss
         self.loss_fct_none = torch.nn.CrossEntropyLoss(reduction="none")
         self.tmp = 1
         self.teacher_model = teacher_model
+
         # self.reverse_loss = reverse_loss
-        self.loss_type = loss_type
+        self.loss_type = args.kd_loss_type
         self.mean_prob = mean_prob
         self.ce_loss_none = CrossEntropyLoss(reduction="none")
         self._mse_loss = MSELoss()
 
-        self.kd_loss_partial = not (kd_loss_top_k == 0)
-        self.topk = kd_loss_top_k
+        self.kd_loss_partial = not (args.kd_loss_top_k == 0)
+        self.topk = args.kd_loss_top_k
         self.weight_mode = "dcg"  # "dcg" or "power_law"
 
-        self.ranking_type = ranking_type
-        self.ranking_R = ranking_R  # Top-R for ranking loss
-
+        self.ranking_type = args.ranking_type
+        self.ranking_R = args.ranking_R  # Top-R for ranking loss
+        self.ranking_beta = args.ranking_beta
         self.ranking_loss_func = lambda *args, **kwargs: 0.0
-        self.ranking_beta = ranking_beta
         if self.ranking_type == "dcg_pair_logistic":
             self.ranking_loss_func = self.ranking_dcg_pair_logistic
         
-        self.use_teacher_entropy_coeff = use_teacher_entropy_coeff
-        self.use_token_curriculum = use_token_curriculum
+        self.use_teacher_entropy_coeff = args.use_teacher_entropy_coeff
+        self.token_curriculum = args.token_curriculum
+        self.token_curriculum_min = args.token_curriculum_min
+        self.token_curriculum_max = args.token_curriculum_max
+        self.token_curriculum_exp_base = args.token_curriculum_exp_base
+        self.token_curriculum_end_step = args.token_curriculum_end_step
 
 
     @staticmethod
@@ -141,7 +146,30 @@ class KDTrainer(Trainer):
 
         return loss_per_row
 
-        
+    def get_current_token_curriculum_mask(self, teacher_output_log_prob: torch.Tensor = None, student_output_log_prob: torch.Tensor = None,
+                                          teacher_logits: torch.Tensor = None, student_logits: torch.Tensor = None):
+        if not self.token_curriculum:
+            return None, None
+        if self.token_curriculum == "const":
+            if self.token_curriculum_min is None or self.token_curriculum_max is None:
+                raise ValueError("token_curriculum_min and token_curriculum_max must be set for 'const' curriculum.")
+            teacher_entropy = -(teacher_output_log_prob * torch.exp(teacher_output_log_prob)).sum(-1)  # [batch_size, seq_len]
+            return torch.logical_and(self.token_curriculum_min < teacher_entropy, teacher_entropy < self.token_curriculum_max), None
+        elif self.token_curriculum == "linear":
+            if self.token_curriculum_min is None or self.token_curriculum_max is None or self.token_curriculum_end_step is None:
+                raise ValueError("token_curriculum_min, token_curriculum_max and token_curriculum_end_step must be set for 'linear' curriculum.")
+            token_curriculum_threshold = min(self.token_curriculum_min + (self.token_curriculum_max - self.token_curriculum_min) * (self.state.global_step / self.token_curriculum_end_step), self.token_curriculum_max)
+            teacher_entropy = -(teacher_output_log_prob * torch.exp(teacher_output_log_prob)).sum(-1)  # [batch_size, seq_len]
+            return teacher_entropy > token_curriculum_threshold, token_curriculum_threshold
+        elif self.token_curriculum == "exponential":
+            if self.token_curriculum_min is None or self.token_curriculum_max is None or self.token_curriculum_exp_base is None or self.token_curriculum_end_step is None:
+                raise ValueError("token_curriculum_min, token_curriculum_max, token_curriculum_exp_base and token_curriculum_end_step must be set for 'exponential' curriculum.")
+            token_curriculum_threshold = min(self.token_curriculum_min * pow(self.token_curriculum_exp_base, self.state.global_step / self.token_curriculum_end_step), self.token_curriculum_max)
+            teacher_entropy = -(teacher_output_log_prob * torch.exp(teacher_output_log_prob)).sum(-1)  # [batch_size, seq_len]
+            return teacher_entropy > token_curriculum_threshold, token_curriculum_threshold
+        else:
+            raise ValueError(f"Unknown token_curriculum: {self.token_curriculum}")
+
     def cakld_loss(self, labels, student_logits: torch.Tensor, teacher_logits: torch.Tensor, beta_prob):
         mask = (labels != -100)
 
@@ -158,6 +186,7 @@ class KDTrainer(Trainer):
         kl_loss = beta_prob * reverse_kl + (1 - beta_prob) * forward_kl
         kl_loss *= mask
         teacher_entropy = None
+        logger.info(f"Token curriculum: {self.token_curriculum}, min: {self.token_curriculum_min}, max: {self.token_curriculum_max}, exp_base: {self.token_curriculum_exp_base}, end_step: {self.token_curriculum_end_step}")
         if self.use_teacher_entropy_coeff:
             # teacher_entropy = F.cross_entropy(teacher_logits, teacher_logits, reduction="none").mean(-1) - forward_kl
             teacher_output_log_prob = teacher_output_log_prob.detach()
@@ -166,11 +195,8 @@ class KDTrainer(Trainer):
             student_entropy = -(student_output_log_prob * torch.exp(student_output_log_prob)).sum(-1)  # [batch_size, seq_len]
             kl_loss *= torch.abs(student_entropy - teacher_entropy)
         token_curriculum_threshold = None
-        if self.use_token_curriculum:
-            teacher_output_log_prob = teacher_output_log_prob.detach()
-            teacher_entropy = -(teacher_output_log_prob * torch.exp(teacher_output_log_prob)).sum(-1)  # [batch_size, seq_len]
-            token_curriculum_threshold = min(0.01 * pow(1000, self.state.global_step / 400), 1000)
-            token_curriculum_mask = (teacher_entropy < token_curriculum_threshold)
+        if self.token_curriculum:
+            token_curriculum_mask, token_curriculum_threshold = self.get_current_token_curriculum_mask(teacher_output_log_prob=teacher_output_log_prob)
             kl_loss *= token_curriculum_mask
 
         average_kl_loss = kl_loss.sum(-1).mean()
