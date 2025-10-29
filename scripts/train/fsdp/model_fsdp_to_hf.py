@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 folder_sizes = {
-    "Qwen3-14B": 59079507460,
+    # "Qwen3-14B": 59079507460,
+    "Qwen3-14B": 59078800000,
 }
 
 
@@ -81,13 +82,17 @@ if __name__ == "__main__":
     # )
     # args = parser.parse_args()
 
-    origin_path = "/home/qingtaoli/mnt/models/Qwen/Qwen3-14B/"
+    mount_root = ""
+    az_container_url = ""
+    az_container_sas = ""
+    
+    origin_path = f"{mount_root}/models/Qwen/Qwen3-14B/"
     origin_files = [f for f in os.listdir(origin_path) if f.endswith(".json") or f.endswith(".txt")]
-    az_blob_url = "https://dcasingularity4556773921.blob.core.windows.net/qingtaoli/checkpoints/Qwen/Qwen3-14B/nemotron_code_cakld_ctx16384_H100_top512_token_curriculum_te_0.01-1_batch8"
-    az_blob_sas = ""
-    mount_path = "/home/qingtaoli/mnt/checkpoints/Qwen/Qwen3-14B/nemotron_code_cakld_ctx16384_H100_top512_token_curriculum_te_0.01-1_batch8"
+    az_blob_path = "checkpoints/Qwen/Qwen3-14B/nemotron_code_cakld_ctx16384_H100_step300repeat4_const_lr_1e-6_mkld_F_50"
+    az_blob_url = f"{az_container_url}/{az_blob_path}"
+    mount_path = f"{mount_root}/{az_blob_path}/"
 
-    for ckpt in [100,200]:
+    for ckpt in range(50, 300, 50):
         in_url = f"{az_blob_url}/checkpoint-{ckpt}/pytorch_model_fsdp_0/"
         in_mount_path = os.path.join(mount_path, f"checkpoint-{ckpt}", "pytorch_model_fsdp_0")
         in_temp_path = f"./"
@@ -98,7 +103,7 @@ if __name__ == "__main__":
         while not check_az_storage_files_integrity(in_mount_path, folder_sizes["Qwen3-14B"]):
             logger.warning(f"Checkpoint-{ckpt} not ready at {in_mount_path}, will check again after 20min...")
             time.sleep(1200)
-        ret = os.system(f'azcopy copy "{in_url}{az_blob_sas}" "{in_temp_path}" --recursive')
+        ret = os.system(f'azcopy copy "{in_url}{az_container_sas}" "{in_temp_path}" --recursive')
 
         in_temp_path = os.path.join(in_temp_path, "pytorch_model_fsdp_0")
         logger.info(f"Converting FSDP model from {in_temp_path} to HF format at {out_temp_path}...")
@@ -106,15 +111,15 @@ if __name__ == "__main__":
         # merge_fsdp_shards_on_gpu(in_temp_path, out_temp_path)
         logger.info(f"Loading FP32 model...")
         for f in origin_files:
-            # ret = os.system(f'azcopy copy "{origin_path}{f}{az_blob_sas}" "{out_temp_path}{f}"')
             shutil.copy(os.path.join(origin_path, f), os.path.join(out_temp_path, f))
         model = transformers.AutoModelForCausalLM.from_pretrained(out_temp_path, torch_dtype=torch.bfloat16, device_map="auto")
         logger.info(f"Saving BF16 model...")
         model.save_pretrained(out_temp_path)
+        del model
         logger.info(f"Removing FP32 model file...")
         os.remove(os.path.join(out_temp_path, "model.safetensors"))
         logger.info(f"Uploading HF model from {out_temp_path} to {out_url}...")
-        ret = os.system(f'azcopy copy "{out_temp_path}" "{out_url}{az_blob_sas}" --recursive')
+        ret = os.system(f'azcopy copy "{out_temp_path}" "{out_url}{az_container_sas}" --recursive')
         if ret != 0:
             raise RuntimeError(f"Failed to upload HF model from {out_temp_path} to {out_url}")
         
