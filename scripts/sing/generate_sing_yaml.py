@@ -11,7 +11,7 @@ sku_mapping = {
     "msroctovc": "NDv4",
 
     # "msrresrchbasicvc": "NDAMv4",
-    "msrresrchbWasicvc": "NC_A100_v4",
+    "msrresrchbasicvc": "NC_A100_v4",
     # "msrresrchbasicvc": "NDH100v5",
     # "msrresrchbasicvc": "NDv4",
 
@@ -79,7 +79,7 @@ test_openr1_env = """
     - uv pip install vllm==0.8.5.post1 lighteval==0.8.1
     - cd /scratch/amlt_code/test/3rdparty/open-r1
     - GIT_LFS_SKIP_SMUDGE=1 uv pip install -e ".[dev]"
-    - uv pip install transformers==4.51.3
+    - uv pip install transformers==4.51.3 click==8.2.1
     - uv pip install flash-attn==2.7.4.post1 --no-build-isolation
     - uv pip install datasets==3.6.0
 
@@ -136,7 +136,7 @@ def get_test_openr1_commands(mode, model_info, model_dir, ckpts, vc, only_aime=F
     elif only_livecodebench:
         tasks = ["extended|lcb:codegeneration|0|0"]
 
-    num_gpus = 4
+    num_gpus = 2
 
     commands = []
     for i, ckpt in enumerate(ckpts):
@@ -147,6 +147,12 @@ def get_test_openr1_commands(mode, model_info, model_dir, ckpts, vc, only_aime=F
                 modify_script_name = "gpqa"
             elif task == "extended|lcb:codegeneration|0|0":
                 modify_script_name = "livecodebench"
+
+
+            run_idle = f"""
+    - cd /mnt/external
+    - nohup python keep.py --gpus={num_gpus} --interval=1 >/dev/null 2>&1 &
+"""
 
             command = f"""
 - name: bd_{mode}_{model_info}_{ckpt}
@@ -163,8 +169,10 @@ def get_test_openr1_commands(mode, model_info, model_dir, ckpts, vc, only_aime=F
     - chmod +x ./modify*.sh
     - ./modify_for_openr1_test_{modify_script_name}.sh
 
+{run_idle if mode == "test_livecodebench" else ""}
+
     - cd /scratch/amlt_code/test/3rdparty/open-r1
-    - export NUM_GPUS=4
+    - export NUM_GPUS={num_gpus}
 
     - export MODEL_DIR={model_dir}/checkpoint-{ckpt}/
     - export MODEL_ARGS="pretrained=$$MODEL_DIR,dtype=bfloat16,data_parallel_size=$$NUM_GPUS,max_model_length=32768,gpu_memory_utilization=0.9,generation_parameters={{max_new_tokens:32768,temperature:0.6,top_p:0.95}},bits=2,group_size=64,quant_type=int"
