@@ -64,3 +64,7 @@ sed -i '/^[[:space:]]*if dataset_filter is not None:/i\
     dataset = {split: concatenate_datasets([dataset[split]] * 16) for split in dataset.keys()}
 ' ../../venv_openr1/lib/python3.11/site-packages/lighteval/utils/utils.py
 
+### DEBUG
+# sed -i '/results.append(cur_response)/a\
+#                 logger.info(f"RESPONSE: {cur_response}")
+# ' ../../venv_openr1/lib/python3.11/site-packages/lighteval/models/vllm/vllm_model.py
