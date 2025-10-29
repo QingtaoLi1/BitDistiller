@@ -103,13 +103,8 @@ class DataCollatorForSupervisedDataset(object):
         )
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
-        sources = []
-        targets = []
-        for instance in instances:
-            source = instance['input_ids']
-            target = instance['labels']
-            sources.append(source)
-            targets.append(target)
+        sources = [instance['input_ids'] for instance in instances]
+        targets = [instance['labels'] for instance in instances]
 
         data_dict = preprocess(sources, targets, self.tokenizer)
         input_ids, labels = data_dict['input_ids'], data_dict['labels']
