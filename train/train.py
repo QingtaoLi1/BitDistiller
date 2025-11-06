@@ -258,13 +258,22 @@ def train():
         trainer = Trainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
 
     try:
-        last_ckpt = get_last_checkpoint(training_args.output_dir)
+        last_ckpt: str = get_last_checkpoint(training_args.output_dir)
     except Exception as e:
         last_ckpt = None
     
     if training_args.may_resume and last_ckpt is not None:
-        logger.info(f"Resuming training from checkpoint: {last_ckpt}")
-        trainer.train(resume_from_checkpoint=last_ckpt)
+        while True:
+            try:
+                logger.info(f"Try resuming training from checkpoint...: {last_ckpt}")
+                trainer.train(resume_from_checkpoint=last_ckpt)
+                break
+            except FileNotFoundError as e:
+                logger.warning(f"Checkpoint {last_ckpt} not found or corrupted.")
+                # Try the previous checkpoint
+                # Extract the current checkpoint step
+                ckpt_step = int(last_ckpt.strip('/').split("-")[-1])
+                last_ckpt = os.path.join(training_args.output_dir, f"checkpoint-{int(ckpt_step - training_args.save_steps)}")
     else:
         logger.info(f"Starting training from scratch.")
         trainer.train()
