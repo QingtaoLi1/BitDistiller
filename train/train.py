@@ -212,6 +212,7 @@ def train():
             dist.all_reduce(mean_prob, op=dist.ReduceOp.SUM)
             mean_prob = mean_prob / dist.get_world_size()
             logger.info(f"Get the coefficient: {mean_prob}")
+    torch.cuda.empty_cache()
 
     logger.info(f"Loading model from {model_args.model_name_or_path}")
     model = transformers.AutoModelForCausalLM.from_pretrained(

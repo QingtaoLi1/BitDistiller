@@ -64,6 +64,187 @@ def check_for_nan_or_inf(tensor, name=""):
                     raise ValueError(f"NaN or Inf detected in tensor: {name}")
     raise ValueError(f"NaN or Inf detected in tensor: {name}")
 
+class WassersteinLoss:
+    def __init__(self, teacher_model, sinkhorn_reg=0.1, num_iters=5, topk=2048):
+        self.teacher_model = teacher_model
+        self.wasserstein_sinkhorn_reg = sinkhorn_reg
+        self.wasserstein_num_iters = num_iters
+        self.topk = topk
+
+        self.rank = dist.get_rank()
+        self.world_size = dist.get_world_size()
+
+        # Handling embedding sharding
+        with torch.no_grad():
+            embedding_d = teacher_model.model.get_input_embeddings().weight  # [vocab_size, dim]
+            emb_local = embedding_d.to_local()
+            gathered = [torch.empty_like(emb_local) for _ in range(self.world_size)]
+            dist.all_gather(gathered, emb_local)
+            embedding = torch.cat(gathered, dim=0).contiguous()  # ✅ 完整 embedding
+            self.vocab_size = embedding.size(0)
+
+        self.rows_per_rank = (self.vocab_size + self.world_size - 1) // self.world_size
+        start = self.rank * self.rows_per_rank
+        end = min((self.rank + 1) * self.rows_per_rank, self.vocab_size)
+
+        with torch.no_grad():
+            emb_local = embedding[start:end].contiguous()
+            self.D_local = torch.cdist(emb_local, embedding, p=2).contiguous()  # [local_rows, vocab_size]
+
+        self.vocab_start = start
+        self.vocab_end = end
+
+        del gathered, embedding, emb_local
+        torch.cuda.empty_cache()
+        logger.info(f"Memory after initializing WassersteinLoss: allocated memory = {torch.cuda.memory_allocated() / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved() / 1024 ** 3:.2f} GB")
+
+
+    def wasserstein_loss(self, labels, student_logits, teacher_logits):
+        WASSERSTEIN_MAX_K = 2048
+        mask = (labels != -100)
+
+        if self.topk > WASSERSTEIN_MAX_K:
+            raise ValueError(f"top-k must be <= {WASSERSTEIN_MAX_K}")
+
+        reg = self.wasserstein_sinkhorn_reg
+        num_iters = self.wasserstein_num_iters
+
+        # Top-k indices
+        _, topk_t = teacher_logits.topk(self.topk, dim=-1)
+        # _, topk_s = student_logits.topk(self.topk, dim=-1)
+        # top_k_indices = torch.unique(torch.cat([topk_t, topk_s], dim=-1), dim=-1)   # [local_bs, local_seq_len, k]
+        top_k_indices = topk_t
+
+        # Gather [k, k] distances
+        logger.info(f"Memory before _get_submatrix_distributed: allocated memory = {torch.cuda.memory_allocated() / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved() / 1024 ** 3:.2f} GB")
+        with torch.no_grad():
+            D_sub = self._get_submatrix_distributed(top_k_indices)  # [batch_size, k, k]
+        logger.info(f"Memory after _get_submatrix_distributed: allocated memory = {torch.cuda.memory_allocated() / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved() / 1024 ** 3:.2f} GB")
+        teacher_prob = F.softmax(teacher_logits.gather(-1, top_k_indices), dim=-1)
+        student_prob = F.softmax(student_logits.gather(-1, top_k_indices), dim=-1)
+        logger.info(f"Memory after softmax: allocated memory = {torch.cuda.memory_allocated() / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved() / 1024 ** 3:.2f} GB")
+
+        # Sinkhorn-Knopp
+        with torch.no_grad():
+            K = torch.exp(-D_sub / reg)  # [k, k]
+
+        u = torch.ones_like(teacher_prob, requires_grad=True) / K.shape[-1]
+        v = torch.ones_like(student_prob, requires_grad=True) / K.shape[-1]
+
+        logger.info(f"Memory before uv-loop: allocated memory = {torch.cuda.memory_allocated() / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved() / 1024 ** 3:.2f} GB")
+        for i in range(num_iters):
+            with torch.no_grad():
+                Kv = torch.matmul(K, v.unsqueeze(-1)).squeeze(-1) + 1e-8
+            u = teacher_prob / Kv
+            with torch.no_grad():
+                Ku = torch.matmul(K.transpose(-2, -1), u.unsqueeze(-1)).squeeze(-1) + 1e-8
+            v = student_prob / Ku
+            logger.info(f"Memory after uv-loop_{i}: allocated memory = {torch.cuda.memory_allocated() / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved() / 1024 ** 3:.2f} GB")
+
+        T = u.unsqueeze(-1) * K * v.unsqueeze(-2)
+        logger.info(f"Memory after T: allocated memory = {torch.cuda.memory_allocated() / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved() / 1024 ** 3:.2f} GB")
+        wasserstein_distance = torch.sum(T * D_sub, dim=(-2, -1)) * mask    # [batch_size, seq_len]
+
+        return wasserstein_distance.sum(-1).mean()  # ✅ 普通 torch.Tensor
+
+
+    def _get_submatrix_distributed(self, top_k_indices: torch.Tensor):
+        """
+        从分布式 D_local 提取出 top-k 子矩阵
+        """
+        local_bs, local_seq_len, k = top_k_indices.shape
+        device = top_k_indices.device
+
+        # Get all shapes
+        local_shape = torch.tensor([local_bs, local_seq_len, k], device=device, dtype=torch.long)
+        all_shapes = [torch.empty_like(local_shape) for _ in range(self.world_size)]
+        dist.all_gather(all_shapes, local_shape)
+
+        M_r = torch.empty((local_bs, local_seq_len, k, k), device=device, dtype=self.D_local.dtype)
+        for s in range(self.world_size):
+            # Get top_k_indices from rank s
+            shape = all_shapes[s]
+            bs, seq_len, k = shape.tolist()
+            indices_tensor = torch.empty(shape.tolist(), device=device, dtype=torch.long)
+            if self.rank == s:
+                indices_tensor.copy_(top_k_indices)
+            dist.broadcast(indices_tensor, src=s)
+
+            # Calculate local part of D for rank s
+            flat_indices_s = indices_tensor.view(bs * seq_len, k)
+            for n in range(bs * seq_len):
+                idx_list_n = flat_indices_s[n]  # [k]
+                local_mask = (idx_list_n >= self.vocab_start) & (idx_list_n < self.vocab_end)
+                local_indices_to_fetch_n = torch.where(local_mask, idx_list_n - self.vocab_start, 0)  # [local_k]
+                local_M_part = self.D_local[local_indices_to_fetch_n, idx_list_n]  # [local_k, k]
+
+                # Pad to full [k, k]
+                local_row_positions_n = local_mask.nonzero().squeeze(-1)
+                padded_local_M = torch.zeros((k, k), device=device, dtype=self.D_local.dtype)
+                padded_local_M[local_row_positions_n] = local_M_part
+
+                # Gather to rank s
+                gather_list = None
+                if self.rank == s:
+                    gather_list = [torch.empty_like(padded_local_M) for _ in range(self.world_size)]
+                dist.gather(padded_local_M, gather_list, dst=s)
+                if self.rank == s:
+                    M_n = torch.sum(torch.stack(gather_list), dim=0)  # [k, k]
+                    M_r[n // seq_len, n % seq_len] = M_n
+            dist.barrier()
+            logger.info(f"Memory after s-loop_{s}: allocated memory = {torch.cuda.memory_allocated() / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved() / 1024 ** 3:.2f} GB")
+        return M_r  # [local_bs, local_seq_len, k, k]
+
+
+    # def temp(self):
+    #     # Get batch max shape
+        
+    #     # Each rank has its own top_k_indices. Broadcast its own top_k_indices to all ranks.
+    #     all_top_k_indices = [torch.empty(shape.tolist(), device=device, dtype=top_k_indices.dtype) for shape in all_shapes]
+    #     dist.all_gather(all_top_k_indices, top_k_indices)
+
+    #     # Calculate the local part of D for each top_k_indices
+    #     all_D_sub_parts = []
+    #     for i, shape in enumerate(all_shapes):
+    #         cur_top_k_indices = all_top_k_indices[i]
+    #         local_mask = (cur_top_k_indices >= self.vocab_start) & (cur_top_k_indices < self.vocab_end)
+    #         padding_value = 0
+    #         local_indices = torch.where(local_mask, cur_top_k_indices - self.vocab_start, padding_value)    # [bs, seq_len, local_k]
+    #         D_part_raw = self.D_local.T[cur_top_k_indices].transpose(-2, -1)                                # [bs, seq_len, local_rows, k]
+    #         D_part_raw = D_part_raw[local_indices]                             # [bs, seq_len, local_k, k]
+
+    #     local_mask = (top_k_indices >= self.vocab_start) & (top_k_indices < self.vocab_end)
+    #     padding_value = 0
+    #     local_indices = torch.where(local_mask, top_k_indices - self.vocab_start, padding_value)    # [bs, seq_len, k]
+
+    #     D_part_raw = self.D_local[local_indices, top_k_indices]
+    #     D_part = torch.where(local_mask, D_part_raw, padding_value)  # [bs, seq_len, k, k]
+
+    #     # gather 所有 rank 的行块（到 rank 0）
+    #     gathered_rows = [None for _ in range(self.world_size)]
+    #     dist.gather_object(D_part, gathered_rows if self.rank == 0 else None, dst=0)
+
+    #     logger.info(f"Shape of -- local_mask: {local_mask.shape}, local_indices: {local_indices.shape}, D_part_raw: {D_part_raw.shape}, D_part: {D_part.shape}")
+    #     if self.rank == 0:
+    #         stacked_D_parts = torch.stack(gathered_rows, dim=0)
+    #         D_sub = torch.sum(stacked_D_parts, dim=0)  # [bs, seq_len, k, k]
+
+    #         # 广播 [k, k] 子矩阵
+    #         D_sub = self._broadcast_tensor(D_sub)
+    #     return D_sub
+
+
+    def _broadcast_tensor(self, t: torch.Tensor):
+        """
+        广播任意形状的 tensor，使每个 rank 拥有相同数据
+        """
+        shape = torch.tensor(t.shape if t.numel() > 0 else [0, 0], device="cuda", dtype=torch.long)
+        dist.broadcast(shape, src=0)
+        if self.rank != 0:
+            t = torch.empty(tuple(shape.tolist()), device="cuda", dtype=torch.float32)
+        dist.broadcast(t, src=0)
+        return t
+
 class KDTrainer(Trainer):
     def __init__(self, teacher_model, args: TrainingArguments, mean_prob=0, **kwargs):
         """
@@ -93,26 +274,32 @@ class KDTrainer(Trainer):
         self.topk = args.kd_loss_top_k
         self.weight_mode = "dcg"  # "dcg" or "power_law"
 
-        self.ranking_type = args.ranking_type
-        self.ranking_R = args.ranking_R  # Top-R for ranking loss
-        self.ranking_beta = args.ranking_beta
+        self.bd_args: TrainingArguments = args
+
         self.ranking_loss_func = lambda *args, **kwargs: 0.0
-        if self.ranking_type == "dcg_pair_logistic":
+        if self.bd_args.ranking_type == "dcg_pair_logistic":
             self.ranking_loss_func = self.ranking_dcg_pair_logistic
         
-        self.use_teacher_entropy_coeff = args.use_teacher_entropy_coeff
-        self.token_curriculum = args.token_curriculum
-        self.token_curriculum_min = args.token_curriculum_min
-        self.token_curriculum_max = args.token_curriculum_max
-        self.token_curriculum_exp_base = args.token_curriculum_exp_base
-        self.token_curriculum_end_step = args.token_curriculum_end_step
+        if self.loss_type == "wasserstein":
+            self.wasserstein_loss_calculator = WassersteinLoss(
+                self.teacher_model,
+                sinkhorn_reg=self.bd_args.wasserstein_sinkhorn_reg,
+                num_iters=self.bd_args.wasserstein_num_iters,
+                topk=self.topk
+            )
+            logger.info(f"Using Wasserstein loss for knowledge distillation."
+                        f" Config: sinkhorn_reg = {self.bd_args.wasserstein_sinkhorn_reg}, num_iters = {self.bd_args.wasserstein_num_iters}, topk = {self.topk}")
+        elif self.loss_type == "mkld":
+            logger.info(f"Using MKLD loss for knowledge distillation."
+                        f" Config: mkld_warmup_steps = {self.bd_args.mkld_warmup_steps}, mkld_reverse = {self.bd_args.mkld_reverse}")
 
+        self.convert_ckpt_process = []
 
     @staticmethod
-    def ranking_dcg_pair_logistic(self, student_logits: torch.Tensor, teacher_logits: torch.Tensor):
+    def ranking_dcg_pair_logistic(self: "KDTrainer", student_logits: torch.Tensor, teacher_logits: torch.Tensor):
         # Get ranking of logits
         B, L, V = student_logits.shape
-        R = self.ranking_R
+        R = self.bd_args.ranking_R          # Top-R for ranking loss
         student_flat = student_logits.view(B*L, V)[:, :R]
         teacher_flat = teacher_logits.view(B*L, V)[:, :R]
 
@@ -177,7 +364,9 @@ class KDTrainer(Trainer):
             teacher_logits, top_k_indices = teacher_logits.topk(self.topk, dim=-1)
             student_logits = student_logits.gather(-1, top_k_indices)
 
-        ranking_loss = self.ranking_loss_func(self, student_logits, teacher_logits)
+        ranking_loss = 0.0
+        if self.bd_args.ranking_type != "none":
+            ranking_loss = self.ranking_loss_func(self, student_logits, teacher_logits)
 
         teacher_output_log_prob = F.log_softmax(teacher_logits, dim=2)
         student_output_log_prob = F.log_softmax(student_logits, dim=2)
@@ -186,8 +375,10 @@ class KDTrainer(Trainer):
         kl_loss = beta_prob * reverse_kl + (1 - beta_prob) * forward_kl
         kl_loss *= mask
         teacher_entropy = None
-        logger.info(f"Token curriculum: {self.token_curriculum}, min: {self.token_curriculum_min}, max: {self.token_curriculum_max}, exp_base: {self.token_curriculum_exp_base}, end_step: {self.token_curriculum_end_step}")
-        if self.use_teacher_entropy_coeff:
+        logger.info(f"Token curriculum: {self.bd_args.token_curriculum}, min: {self.bd_args.token_curriculum_min}, "
+                    f"max: {self.bd_args.token_curriculum_max}, exp_base: {self.bd_args.token_curriculum_exp_base}, "
+                    f"end_step: {self.bd_args.token_curriculum_end_step}")
+        if self.bd_args.use_teacher_entropy_coeff:
             # teacher_entropy = F.cross_entropy(teacher_logits, teacher_logits, reduction="none").mean(-1) - forward_kl
             teacher_output_log_prob = teacher_output_log_prob.detach()
             student_output_log_prob = student_output_log_prob.detach()
@@ -195,7 +386,7 @@ class KDTrainer(Trainer):
             student_entropy = -(student_output_log_prob * torch.exp(student_output_log_prob)).sum(-1)  # [batch_size, seq_len]
             kl_loss *= torch.abs(student_entropy - teacher_entropy)
         token_curriculum_threshold = None
-        if self.token_curriculum:
+        if self.bd_args.token_curriculum:
             token_curriculum_mask, token_curriculum_threshold = self.get_current_token_curriculum_mask(teacher_output_log_prob=teacher_output_log_prob)
             kl_loss *= token_curriculum_mask
 
@@ -232,7 +423,48 @@ class KDTrainer(Trainer):
 
         logger.info(f"LOSS: average_kl_loss = {average_kl_loss}, average_ranking_loss = {ranking_loss}, TE = {teacher_entropy}, TE threshold = {token_curriculum_threshold}")
         torch.cuda.empty_cache()  # Clear cache to avoid memory issues
-        return average_kl_loss + self.ranking_beta * ranking_loss
+        return average_kl_loss + self.bd_args.ranking_beta * ranking_loss
+
+    def mkld_loss(self, labels, student_logits: torch.Tensor, teacher_logits: torch.Tensor, beta_prob):
+        if self.kd_loss_partial:
+            _, top_k_indices_teacher = teacher_logits.topk(self.topk, dim=-1)
+            _, top_k_indices_student = student_logits.topk(self.topk, dim=-1)
+            top_k_indices = torch.unique(torch.cat([top_k_indices_teacher, top_k_indices_student], dim=-1), dim=-1)
+            teacher_logits = teacher_logits.gather(-1, top_k_indices)
+            student_logits = student_logits.gather(-1, top_k_indices)
+
+        teacher_output_log_prob = F.log_softmax(teacher_logits, dim=2)
+        student_output_log_prob = F.log_softmax(student_logits, dim=2)
+        reverse_kl = F.kl_div(teacher_output_log_prob, student_output_log_prob, reduction="none", log_target=True).sum(-1)  # [batch_size, seq_len]
+        forward_kl = F.kl_div(student_output_log_prob, teacher_output_log_prob, reduction="none", log_target=True).sum(-1)
+    
+        if self.state.global_step <= self.bd_args.mkld_warmup_steps:
+            kl_loss = beta_prob * reverse_kl + (1 - beta_prob) * forward_kl
+        else:
+            # forward_mask = (student_logits.argmax(dim=-1) == teacher_logits.argmax(dim=-1)).float()
+            if self.state.global_step == self.bd_args.mkld_warmup_steps + 1:
+                logger.info(f"MKLD step {self.state.global_step} > warmup {self.bd_args.mkld_warmup_steps}, "
+                            f"using dynamic masking. Reverse: {self.bd_args.mkld_reverse}")
+            with torch.no_grad():
+                se = student_logits.sum(dim=-1)
+                te = teacher_logits.sum(dim=-1)
+                forward_mask = (se >= te)
+                reverse_mask = (se < te)
+                forward_mask.requires_grad_(False)
+                reverse_mask.requires_grad_(False)
+                if self.bd_args.mkld_reverse:
+                    forward_mask, reverse_mask = reverse_mask, forward_mask
+            assert reverse_mask.shape == forward_mask.shape == reverse_kl.shape == forward_kl.shape
+            kl_loss = reverse_mask * reverse_kl + forward_mask * forward_kl
+
+        mask = (labels != -100)
+        kl_loss *= mask
+        average_kl_loss = kl_loss.sum(-1).mean()
+
+        logger.info(f"LOSS: average_kl_loss = {average_kl_loss}")
+        torch.cuda.empty_cache()  # Clear cache to avoid memory issues
+        return average_kl_loss
+
 
     def jsd_loss(self, labels, student_logits, teacher_logits, beta_prob):
         mask = (labels != -100)
@@ -297,7 +529,13 @@ class KDTrainer(Trainer):
 
     def mse_loss(self, student_logits, teacher_logits):
         return self._mse_loss(student_logits, teacher_logits)
-    
+
+    def smse_loss(self, student_logits, teacher_logits):
+        student_prob = F.softmax(student_logits, dim=-1)
+        teacher_prob = F.softmax(teacher_logits, dim=-1)
+        return self._mse_loss(student_prob, teacher_prob)
+
+
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         device = f"cuda:{int(os.environ.get('LOCAL_RANK', '0'))}"
         log_fsdp_debug(logger, f"Allocated memory before forward pass: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved(device) / 1024 ** 3:.2f} GB")
@@ -340,8 +578,16 @@ class KDTrainer(Trainer):
                 kd_loss = self.cakld_loss(labels, student_logits, teacher_logits, self.mean_prob)
             elif self.loss_type == "cakld_ranking":
                 kd_loss = self.cakld_loss_with_ranking(labels, student_logits, teacher_logits, self.mean_prob)
+            elif self.loss_type == "mkld":
+                kd_loss = self.mkld_loss(labels, student_logits, teacher_logits, self.mean_prob)
             elif self.loss_type == "jsd":
                 kd_loss = self.jsd_loss(labels, student_logits, teacher_logits, 0.5)
+            elif self.loss_type == "mse":
+                kd_loss = self.mse_loss(student_logits, teacher_logits)
+            elif self.loss_type == "smse":
+                kd_loss = self.smse_loss(student_logits, teacher_logits)
+            elif self.loss_type == "wasserstein":
+                kd_loss = self.wasserstein_loss_calculator.wasserstein_loss(labels, student_logits, teacher_logits)
         log_fsdp_debug(logger, f"Allocated memory after loss computation: {torch.cuda.memory_allocated(device) / 1024 ** 3:.2f} GB, reserved: {torch.cuda.memory_reserved(device) / 1024 ** 3:.2f} GB")
         del teacher_logits
         del student_logits

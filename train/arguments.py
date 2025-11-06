@@ -72,6 +72,15 @@ class TrainingArguments(transformers.TrainingArguments):
         metadata={"help": "How many step to caculate the coefficient of CAKLD."}
     )
 
+    mkld_warmup_steps: int = field(
+        default=50,
+        metadata={"help": "Number of warmup steps (warmup means using cakld loss) for MKLD loss."}
+    )
+    mkld_reverse: bool = field(
+        default=False,
+        metadata={"help": "Whether to reverse the MKLD loss masks."}
+    )
+
     ranking_type: str = field(
         default="none",
         metadata={"help": "Type of ranking loss to use. Should be one of [`none`, `dcg_pair_logistic`]."}
@@ -111,6 +120,15 @@ class TrainingArguments(transformers.TrainingArguments):
     token_curriculum_end_step: Optional[int] = field(
         default=None,
         metadata={"help": "The step at which the token-level curriculum reaches its maximum threshold. Default: None."}
+    )
+
+    wasserstein_sinkhorn_reg: float = field(
+        default=0.1,
+        metadata={"help": "The regularization coefficient for Sinkhorn algorithm in Wasserstein loss."}
+    )
+    wasserstein_num_iters: int = field(
+        default=10,
+        metadata={"help": "The number of iterations for Sinkhorn algorithm in Wasserstein loss."}
     )
 
     use_flash_attn: bool = field(
