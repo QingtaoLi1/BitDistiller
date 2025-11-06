@@ -86,7 +86,7 @@ test_openr1_env = """
     - echo -e "alias ll='ls -al'" >> ~/.bashrc
 """
 
-def get_test_arc_mmlu_commands(mode, model_info, model_dir, ckpts, vc):
+def get_test_arc_mmlu_commands(mode, model_info, model_dir, vc):
     if mode == "test_arc":
         py_command = f"python llm_eval.py --model $$CKPT_DIR --eval_tasks arc_challenge,winogrande,hellaswag,piqa --test_set --num_fewshot 0 --bits 2 --group_size 64 --quant_type int"
         log_file_name = "arc.log"
@@ -94,39 +94,30 @@ def get_test_arc_mmlu_commands(mode, model_info, model_dir, ckpts, vc):
         py_command = f"python llm_eval.py --model $$CKPT_DIR --eval_tasks hendrycksTest-* --test_set --num_fewshot 5 --bits 2 --group_size 64 --quant_type int"
         log_file_name = "MMLU.log"
 
-    num_ckpts = len(ckpts)
-    num_gpus = num_ckpts if num_ckpts <= 2 else 4
+    num_gpus = 1
 
     command = f"""
-- name: bd_{mode}_{model_info}_{','.join(ckpts)}
-  sku: {instance_type_mapping[sku_mapping[vc]][num_gpus]}
-  identity: managed
-  submit_args:
-    env:
-      _AZUREML_SINGULARITY_JOB_UAI: "/subscriptions/656a79af-6a27-4924-ad92-9221860e3bba/resourceGroups/dca-core/providers/Microsoft.ManagedIdentity/userAssignedIdentities/dca-core-identity"
-  command:
-    - hf auth login --token {HF_token} --add-to-git-credential
-    - cd test/general
-"""
-    for i, ckpt in enumerate(ckpts):
-        command += f"""
-    - export CKPT_DIR={model_dir}/checkpoint-{ckpt}/hf
-    - CUDA_VISIBLE_DEVICES={i} nohup {py_command} > $$CKPT_DIR/{log_file_name} 2>&1 &
-    - pid{i}=$$!
-"""
-    command += """
-    - wait """
-    for i in range(len(ckpts)):
-        command += f"$$pid{i} "
-    command += """
-  tags: ["Debug:False"]
-  priority: High
-  azml_int: True
+    name: bd_{mode}_{model_info}_{{ckpt:d}}
+    sku: {instance_type_mapping[sku_mapping[vc]][num_gpus]}
+    identity: managed
+    submit_args:
+      env:
+        _AZUREML_SINGULARITY_JOB_UAI: "/subscriptions/656a79af-6a27-4924-ad92-9221860e3bba/resourceGroups/dca-core/providers/Microsoft.ManagedIdentity/userAssignedIdentities/dca-core-identity"
+    command:
+        - hf auth login --token {HF_token} --add-to-git-credential
+        - cd test/general
+        - export CKPT_DIR={model_dir}/checkpoint-{{ckpt}}/hf
+        - nohup {py_command} 2>&1 | tee -a $$CKPT_DIR/{log_file_name} &
+        - pid=$$!
+        - wait $$pid
+    tags: ["Debug:False"]
+    priority: High
+    azml_int: True
 """
     return [command]
 
-def get_test_openr1_commands(mode, model_info, model_dir, ckpts, vc, only_aime=False, only_gpqa=False, only_math500=False, only_livecodebench=False):
-    tasks = ["custom|aime24|0|0", "custom|gpqa:diamond|0|0", "custom|math_500|0|0", "extended|lcb:codegeneration|0|0"]
+def get_test_openr1_commands(mode, model_info, model_dir, vc, only_aime=False, only_gpqa=False, only_math500=False, only_livecodebench=False, only_ifeval=False):
+    tasks = ["custom|aime24|0|0", "custom|gpqa:diamond|0|0", "custom|math_500|0|0", "extended|lcb:codegeneration|0|0", "extended|ifeval|0|0"]
     if only_aime:
         tasks = ["custom|aime24|0|0"]
     elif only_gpqa:
@@ -135,62 +126,63 @@ def get_test_openr1_commands(mode, model_info, model_dir, ckpts, vc, only_aime=F
         tasks = ["custom|math_500|0|0"]
     elif only_livecodebench:
         tasks = ["extended|lcb:codegeneration|0|0"]
+    elif only_ifeval:
+        tasks = ["extended|ifeval|0|0"]
 
     num_gpus = 2
 
     commands = []
-    for i, ckpt in enumerate(ckpts):
-        for task in tasks:
-            if task == "custom|aime24|0|0":
-                modify_script_name = "aime"
-            elif task == "custom|gpqa:diamond|0|0" or task == "custom|math_500|0|0":
-                modify_script_name = "gpqa"
-            elif task == "extended|lcb:codegeneration|0|0":
-                modify_script_name = "livecodebench"
+    for task in tasks:
+        if task == "custom|aime24|0|0":
+            modify_script_name = "aime"
+        elif task == "custom|gpqa:diamond|0|0" or task == "custom|math_500|0|0" or task == "extended|ifeval|0|0":
+            modify_script_name = "gpqa"
+        elif task == "extended|lcb:codegeneration|0|0":
+            modify_script_name = "livecodebench"
 
 
-            run_idle = f"""
-    - cd /mnt/external
-    - nohup python keep.py --gpus={num_gpus} --interval=1 >/dev/null 2>&1 &
+        run_idle = f"""
+        - cd /mnt/external
+        - nohup python keep.py --gpus={num_gpus} --interval=1 >/dev/null 2>&1 &
 """
 
-            command = f"""
-- name: bd_{mode}_{model_info}_{ckpt}
-  sku: {instance_type_mapping[sku_mapping[vc]][num_gpus]}
-  identity: managed
-  submit_args:
-    env:
-      _AZUREML_SINGULARITY_JOB_UAI: "/subscriptions/656a79af-6a27-4924-ad92-9221860e3bba/resourceGroups/dca-core/providers/Microsoft.ManagedIdentity/userAssignedIdentities/dca-core-identity"
-  command:
-    - source venv_openr1/bin/activate
-    - hf auth login --token {HF_token}
+        command = f"""
+    name: bd_{mode}_{model_info}_{{ckpt:d}}
+    sku: {instance_type_mapping[sku_mapping[vc]][num_gpus]}
+    identity: managed
+    submit_args:
+      env:
+        _AZUREML_SINGULARITY_JOB_UAI: "/subscriptions/656a79af-6a27-4924-ad92-9221860e3bba/resourceGroups/dca-core/providers/Microsoft.ManagedIdentity/userAssignedIdentities/dca-core-identity"
+    command:
+        - source venv_openr1/bin/activate
+        - hf auth login --token {HF_token}
 
-    - cd /scratch/amlt_code/scripts/code_modify
-    - chmod +x ./modify*.sh
-    - ./modify_for_openr1_test_{modify_script_name}.sh
+        - cd /scratch/amlt_code/scripts/code_modify
+        - chmod +x ./modify*.sh
+        - ./modify_for_openr1_test_{modify_script_name}.sh
 
 {run_idle if mode == "test_livecodebench" else ""}
 
-    - cd /scratch/amlt_code/test/3rdparty/open-r1
-    - export NUM_GPUS={num_gpus}
+        - cd /scratch/amlt_code/test/3rdparty/open-r1
+        - export NUM_GPUS={num_gpus}
 
-    - export MODEL_DIR={model_dir}/checkpoint-{ckpt}/hf
-    - export MODEL_ARGS="pretrained=$$MODEL_DIR,dtype=bfloat16,data_parallel_size=$$NUM_GPUS,max_model_length=32768,gpu_memory_utilization=0.9,generation_parameters={{max_new_tokens:32768,temperature:0.6,top_p:0.95}},bits=2,group_size=64,quant_type=int"
-    - export OUTPUT_DIR=$$MODEL_DIR/evals
-    # - export MODEL_ARGS="pretrained=$$MODEL_DIR,dtype=bfloat16,data_parallel_size=$$NUM_GPUS,max_model_length=32768,gpu_memory_utilization=0.9,generation_parameters={{max_new_tokens:32768,temperature:0.0,top_p:1,top_k:1}},bits=2,group_size=64,quant_type=int"
-    # - export OUTPUT_DIR=$$MODEL_DIR/evals_greedy
-    - VLLM_WORKER_MULTIPROC_METHOD=spawn lighteval vllm $$MODEL_ARGS "{task}" --custom-tasks src/open_r1/evaluate.py --use-chat-template --output-dir $$OUTPUT_DIR --save-details
-    # - cd /mnt/external
-    # - nohup python keep.py --gpus=4 --interval=0.2 >/dev/null 2>&1 &
-    # - sleep 100000000
-  tags: ["Debug:False"]
-  priority: High
-  azml_int: True
+        - export MODEL_DIR={model_dir}/checkpoint-{{ckpt}}/hf
+        - export MODEL_ARGS="pretrained=$$MODEL_DIR,dtype=bfloat16,data_parallel_size=$$NUM_GPUS,max_model_length=32768,gpu_memory_utilization=0.9,generation_parameters={{{{max_new_tokens:32768,temperature:0.6,top_p:0.95}}}},bits=2,group_size=64,quant_type=int"
+        - export OUTPUT_DIR=$$MODEL_DIR/evals
+        # - export MODEL_ARGS="pretrained=$$MODEL_DIR,dtype=bfloat16,data_parallel_size=$$NUM_GPUS,max_model_length=32768,gpu_memory_utilization=0.9,generation_parameters={{{{max_new_tokens:32768,temperature:0.0,top_p:1,top_k:1}}}},bits=2,group_size=64,quant_type=int"
+        # - export OUTPUT_DIR=$$MODEL_DIR/evals_greedy
+        - VLLM_WORKER_MULTIPROC_METHOD=spawn lighteval vllm $$MODEL_ARGS "{task}" --custom-tasks src/open_r1/evaluate.py --use-chat-template --output-dir $$OUTPUT_DIR --save-details
+        # - cd /mnt/external
+        # - nohup python keep.py --gpus=4 --interval=0.2 >/dev/null 2>&1 &
+        # - sleep 100000000
+    tags: ["Debug:False"]
+    priority: High
+    azml_int: True
 """
-            commands.append(command)
+        commands.append(command)
     return commands
 
-def get_yaml_text(vc, mode_env, jobs_text):
+def get_yaml_text(vc, mode_env, jobs_text, ckpts):
     yaml_text = \
 f"""description: Simple Amulet job on Singularity
 
@@ -226,14 +218,21 @@ data:
   storage_id: external
 
 
-jobs:
+search:
+  job_template:
 {jobs_text}
+  type: grid
+  max_trials: {100}
+  params:
+    - name: ckpt
+      spec: discrete
+      values: [{",".join(ckpts)}]
 """
     return yaml_text
 
 
 # Prepare argument parsing
-valid_modes = {"test_openr1", "test_aime", "test_gpqa", "test_math500", "test_livecodebench", "test_arc", "test_mmlu"}
+valid_modes = {"test_openr1", "test_aime", "test_gpqa", "test_math500", "test_livecodebench", "test_arc", "test_mmlu", "test_ifeval"}
 def comma_separated_list_mode(arg):
     items = arg.split(",")
     for item in items:
@@ -265,7 +264,7 @@ for mode in args.mode:
     mode_env = ""
     if mode in ["test_arc", "test_mmlu"]:
         mode_env = test_arc_mmlu_env
-    elif mode in ["test_openr1", "test_aime", "test_gpqa", "test_math500", "test_livecodebench"]:
+    elif mode in ["test_openr1", "test_aime", "test_gpqa", "test_math500", "test_livecodebench", "test_ifeval"]:
         mode_env = test_openr1_env
     else:
         raise ValueError("Invalid mode specified. Choose from 'test_openr1', 'test_aime', 'test_gpqa', 'test_math500', 'test_livecodebench', 'test_arc', or 'test_mmlu'.")
@@ -277,18 +276,19 @@ for mode in args.mode:
 
     mode_job = []
     if mode in ["test_arc", "test_mmlu"]:
-        assert num_ckpts <= 4, "For 'test_arc', the number of checkpoints must be 4 or fewer."
-        mode_job = get_test_arc_mmlu_commands(mode, model_info, args.model_dir, args.ckpts, args.vc)
+        mode_job = get_test_arc_mmlu_commands(mode, model_info, args.model_dir, args.vc)
     elif mode == "test_openr1":
-        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, args.vc)
+        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.vc)
     elif mode == "test_aime":
-        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, args.vc, only_aime=True)
+        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.vc, only_aime=True)
     elif mode == "test_gpqa":
-        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, args.vc, only_gpqa=True)
+        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.vc, only_gpqa=True)
     elif mode == "test_math500":
-        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, args.vc, only_math500=True)
+        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.vc, only_math500=True)
     elif mode == "test_livecodebench":
-        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.ckpts, args.vc, only_livecodebench=True)
+        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.vc, only_livecodebench=True)
+    elif mode == "test_ifeval":
+        mode_job = get_test_openr1_commands(mode, model_info, args.model_dir, args.vc, only_ifeval=True)
     else:
         raise ValueError("Invalid mode specified. Choose from 'test_openr1', 'test_aime', 'test_gpqa', 'test_math500', 'test_livecodebench', 'test_arc', or 'test_mmlu'.")
 
@@ -296,7 +296,7 @@ for mode in args.mode:
     jobs_text = "\n".join(mode_job)
 
     vc = args.vc
-    yaml_text = get_yaml_text(vc, mode_env, jobs_text)
+    yaml_text = get_yaml_text(vc, mode_env, jobs_text, args.ckpts)
 
     output_file = os.path.join("scripts", "sing", f"singularity_{mode}.yaml")
     with open(output_file, 'w') as f:
@@ -306,20 +306,25 @@ for mode in args.mode:
 
     # Run the Singularity command to submit the job
     print("Running Singularity command to submit the job...")
-    shell_command = f"amlt run {output_file} -y -d \"{mode},{model_info}\""
-    print("Shell command: ", shell_command)
+    tries = 2
+    while True:
+        shell_command = f"amlt run {output_file} bd_{mode}_{model_info}_try{tries} -y -d \"{mode},{model_info}\""
+        print("Shell command: ", shell_command)
 
-    try:
-        process = subprocess.Popen(shell_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        stdout, stderr = process.communicate(timeout=180)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        stdout, stderr = process.communicate()
-        print("Error: Singularity command timed out.")
-    
-    if process.returncode != 0:
-        print(f"Error: Singularity command failed with return code {process.returncode}.")
-        print("STDOUT:", stdout.strip())
-        print("STDERR:", stderr.strip())
-    else:
-        print("Singularity command executed successfully.")
+        try:
+            process = subprocess.Popen(shell_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            stdout, stderr = process.communicate(timeout=180)
+            break
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, stderr = process.communicate()
+            print("Error: Singularity command timed out.")
+            break
+        except Exception as e:
+            print(f"Error: Singularity command failed with return code {process.returncode} while running the Singularity command: {type(e).__name__}")
+            print("STDOUT:", stdout.strip())
+            print("STDERR:", stderr.strip())
+            tries += 1
+            continue
+        
+    print("Singularity command executed successfully.")
