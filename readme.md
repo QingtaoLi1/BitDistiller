@@ -1,5 +1,14 @@
 # [ACL 2024] BitDistiller: Unleashing the Potential of Sub-4-Bit LLMs via Self-Distillation [[paper]](http://arxiv.org/abs/2402.10631)
 
+---
+Forked from [DD-DuDa/BitDistiller](https://github.com/DD-DuDa/BitDistiller). This repo (see [branch fsdp](https://github.com/QingtaoLi1/BitDistiller/tree/fsdp)):
+1. ✅Use FSDP2 instead of DeepSpeed.
+2. ✅Fixes some environment issues, and upgrades packages to `transformers==4.51.3` which supports Qwen3 models.
+3. ✅Includes lighteval for a wider range of benchmark evaluation via [OpenR1](https://github.com/QingtaoLi1/open-r1/tree/78384abae780c00f6f0b692defb4bcd9d421c675).
+4. ✅Provides scripts for convenient Singularity cluster running.
+5. 🕐[To-be-checked] Adds RL running via [OpenR1](https://github.com/QingtaoLi1/open-r1/tree/78384abae780c00f6f0b692defb4bcd9d421c675).
+---
+
 **Implementing efficient sub-4-bit weight quantization (3 / 2 bits) in LLMs through advanced QAT-based Self-Distillation techniques.**
 
 ![overview](./imgs/overview.jpg)
