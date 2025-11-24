@@ -11,6 +11,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
+USING_MANAGED_SERVICE_IDENTITY = True
+
+
 folder_sizes = {
     # "Qwen3-14B": 59079507460,
     "Qwen3-14B": 59078800000,
@@ -65,23 +68,6 @@ def check_az_storage_files_integrity(file_path: str, expected_size: int) -> bool
     return actual_size >= expected_size
 
 if __name__ == "__main__":
-    # parser = argparse.ArgumentParser(
-    #     description="A faster, GPU-based script to merge FSDP sharded checkpoints."
-    # )
-    # parser.add_argument(
-    #     "--checkpoint_dir",
-    #     type=str,
-    #     required=True,
-    #     help="Path to the directory containing FSDP model shards.",
-    # )
-    # parser.add_argument(
-    #     "--output_file",
-    #     type=str,
-    #     required=True,
-    #     help="Path to save the output .safetensors file.",
-    # )
-    # args = parser.parse_args()
-
     mount_root = ""
     az_container_url = ""
     az_container_sas = ""
@@ -103,7 +89,10 @@ if __name__ == "__main__":
         while not check_az_storage_files_integrity(in_mount_path, folder_sizes["Qwen3-14B"]):
             logger.warning(f"Checkpoint-{ckpt} not ready at {in_mount_path}, will check again after 20min...")
             time.sleep(1200)
-        ret = os.system(f'azcopy copy "{in_url}{az_container_sas}" "{in_temp_path}" --recursive')
+        if USING_MANAGED_SERVICE_IDENTITY:
+            ret = os.system(f'AZCOPY_AUTO_LOGIN_TYPE=MSI azcopy copy "{in_url}" "{in_temp_path}" --recursive')
+        else:
+            ret = os.system(f'azcopy copy "{in_url}{az_container_sas}" "{in_temp_path}" --recursive')
 
         in_temp_path = os.path.join(in_temp_path, "pytorch_model_fsdp_0")
         logger.info(f"Converting FSDP model from {in_temp_path} to HF format at {out_temp_path}...")
@@ -119,7 +108,10 @@ if __name__ == "__main__":
         logger.info(f"Removing FP32 model file...")
         os.remove(os.path.join(out_temp_path, "model.safetensors"))
         logger.info(f"Uploading HF model from {out_temp_path} to {out_url}...")
-        ret = os.system(f'azcopy copy "{out_temp_path}" "{out_url}{az_container_sas}" --recursive')
+        if USING_MANAGED_SERVICE_IDENTITY:
+            ret = os.system(f'AZCOPY_AUTO_LOGIN_TYPE=MSI azcopy copy "{out_temp_path}" "{out_url}" --recursive')
+        else:
+            ret = os.system(f'azcopy copy "{out_temp_path}" "{out_url}{az_container_sas}" --recursive')
         if ret != 0:
             raise RuntimeError(f"Failed to upload HF model from {out_temp_path} to {out_url}")
         
