@@ -28,6 +28,8 @@ import random
 import json
 import os
 import torch.nn as nn
+import tqdm
+
 
 def get_calib_dataset(datasets="pileval", tokenizer=None, n_samples=128, block_size=1024):
     if datasets == "pile":
@@ -41,9 +43,11 @@ def get_calib_dataset(datasets="pileval", tokenizer=None, n_samples=128, block_s
     elif datasets == "openr1_math":
         return get_calib_dataset_json_dataset(tokenizer=tokenizer, n_samples=n_samples, block_size=block_size, data_path="/mnt/external/data/OpenR1-Math-220k/default.json")
     elif datasets == "nemotron_code":
-        return get_calib_dataset_nemotron(tokenizer=tokenizer, n_samples=n_samples, block_size=block_size, split="code")
+        # return get_calib_dataset_nemotron(tokenizer=tokenizer, n_samples=n_samples, block_size=block_size, split="code")
+        return get_calib_dataset_json_dataset(tokenizer=tokenizer, n_samples=n_samples, block_size=block_size, data_path="/home/qingtaoli/mnt/data/nemotron/code/nemotron-sft-code_500K_block_0.jsonl")
     elif datasets == "nemotron_math":
-        return get_calib_dataset_nemotron(tokenizer=tokenizer, n_samples=n_samples, block_size=block_size, split="math")
+        # return get_calib_dataset_nemotron(tokenizer=tokenizer, n_samples=n_samples, block_size=block_size, split="math")
+        return get_calib_dataset_json_dataset(tokenizer=tokenizer, n_samples=n_samples, block_size=block_size, data_path="/home/qingtaoli/mnt/data/nemotron/math/nemotron-sft-math_500K_block_0.jsonl")
     elif datasets == "epicoder":
         return get_calib_dataset_epicoder(tokenizer=tokenizer, n_samples=n_samples, block_size=block_size)
 
@@ -147,28 +151,26 @@ def get_calib_dataset_json_dataset(tokenizer=None, n_samples=512, block_size=512
     if data_path is None:
         raise ValueError("data_path must be provided for clip calibration dataset!")
 
-    with open(data_path, 'r', encoding='utf-8') as f:
-        dataset = f.readlines()
-
     samples = []
     n_run = 0
 
-    for data in dataset:
-        item = json.loads(data.strip())
-        istr = item[0][0]
-        opt = item[0][1]
-        line = f"{istr}\n\n{opt}"
-        line = line.strip()
-        line_encoded = tokenizer.encode(line)
-        if len(line_encoded) > 512:
-            continue
-        sample = torch.tensor([line_encoded])
-        if sample.numel() == 0:
-            continue
-        samples.append(sample)
-        n_run += 1
-        if n_run == n_samples:
-            break
+    with open(data_path, 'r', encoding='utf-8') as f:
+        for _, data in tqdm.tqdm(enumerate(f)):
+            item = json.loads(data.strip())
+            istr = item[0][0]
+            opt = item[0][1]
+            line = f"{istr}\n\n{opt}"
+            line = line.strip()
+            line_encoded = tokenizer.encode(line)
+            if len(line_encoded) > 512:
+                line_encoded = line_encoded[:512]
+            sample = torch.tensor([line_encoded])
+            if sample.numel() == 0:
+                continue
+            samples.append(sample)
+            n_run += 1
+            if n_run == n_samples:
+                break
     # now concatenate all samples and split according to block size
     cat_samples = torch.cat(samples, dim=1)
     n_split = cat_samples.shape[1] // block_size
