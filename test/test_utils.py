@@ -2,8 +2,7 @@
 import torch
 import torch.nn as nn
 from tqdm import tqdm
-import bitsandbytes as bnb
-from transformers import AutoModelForCausalLM, BitsAndBytesConfig
+# from transformers import AutoModelForCausalLM, BitsAndBytesConfig
 import os
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "quantization"))
@@ -15,6 +14,7 @@ def get_named_linears(module):
     return {name: m for name, m in module.named_modules() if isinstance(m, nn.Linear)}
 
 def get_named_bnb_linears(module):
+    import bitsandbytes as bnb
     return {name: m for name, m in module.named_modules() if isinstance(m, bnb.nn.Linear4bit)}
 
 # core quantization method (simulated quantization)
