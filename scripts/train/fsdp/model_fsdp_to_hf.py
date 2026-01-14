@@ -15,8 +15,9 @@ USING_MANAGED_SERVICE_IDENTITY = True
 
 
 folder_sizes = {
-    # "Qwen3-14B": 59079507460,
-    "Qwen3-14B": 59078800000,
+    "Qwen3-0.6B": 3010900000,       # 3010934606
+    "Qwen3-1.7B": 8131300000,       # 8131365816
+    "Qwen3-14B": 59078800000,       # 59079507460
 }
 
 
@@ -71,51 +72,53 @@ if __name__ == "__main__":
     mount_root = ""
     az_container_url = ""
     az_container_sas = ""
-    
-    origin_path = f"{mount_root}/models/Qwen/Qwen3-14B/"
-    origin_files = [f for f in os.listdir(origin_path) if f.endswith(".json") or f.endswith(".txt")]
-    az_blob_path = "checkpoints/Qwen/Qwen3-14B/nemotron_code_cakld_ctx16384_H100_step300repeat4_const_lr_1e-6_mkld_F_50"
-    az_blob_url = f"{az_container_url}/{az_blob_path}"
-    mount_path = f"{mount_root}/{az_blob_path}/"
 
-    for ckpt in range(50, 300, 50):
-        in_url = f"{az_blob_url}/checkpoint-{ckpt}/pytorch_model_fsdp_0/"
-        in_mount_path = os.path.join(mount_path, f"checkpoint-{ckpt}", "pytorch_model_fsdp_0")
-        in_temp_path = f"./"
-        out_temp_path = f"./hf/"
-        out_url = f"{az_blob_url}/checkpoint-{ckpt}/"
+    for model_name, modal in [("Qwen3-0.6B", "math"), ("Qwen3-0.6B", "code"), ("Qwen3-1.7B", "math"), ("Qwen3-1.7B", "code")]:        
+        origin_path = f"{mount_root}/models/Qwen/{model_name}/"
+        origin_files = [f for f in os.listdir(origin_path) if f.endswith(".json") or f.endswith(".txt")]
+        az_blob_path = f"checkpoints/Qwen/{model_name}/nemotron_{modal}_cakld_ctx16384_top512_step300repeat4_const_lr_1e-6_base"
+        az_blob_url = f"{az_container_url}/{az_blob_path}"
+        mount_path = f"{mount_root}/{az_blob_path}/"
 
-        logger.info(f"Downloading checkpoint-{ckpt} from {in_url} to {in_temp_path}...")
-        while not check_az_storage_files_integrity(in_mount_path, folder_sizes["Qwen3-14B"]):
-            logger.warning(f"Checkpoint-{ckpt} not ready at {in_mount_path}, will check again after 20min...")
-            time.sleep(1200)
-        if USING_MANAGED_SERVICE_IDENTITY:
-            ret = os.system(f'AZCOPY_AUTO_LOGIN_TYPE=MSI azcopy copy "{in_url}" "{in_temp_path}" --recursive')
-        else:
-            ret = os.system(f'azcopy copy "{in_url}{az_container_sas}" "{in_temp_path}" --recursive')
+        checkpoints = list(range(50, 200, 50)) + list(range(100, 1200, 100))
+        for ckpt in checkpoints:
+            in_url = f"{az_blob_url}/checkpoint-{ckpt}/pytorch_model_fsdp_0/"
+            in_mount_path = os.path.join(mount_path, f"checkpoint-{ckpt}", "pytorch_model_fsdp_0")
+            in_temp_path = f"./"
+            out_temp_path = f"./hf/"
+            out_url = f"{az_blob_url}/checkpoint-{ckpt}/"
 
-        in_temp_path = os.path.join(in_temp_path, "pytorch_model_fsdp_0")
-        logger.info(f"Converting FSDP model from {in_temp_path} to HF format at {out_temp_path}...")
-        merge_fsdp_weights(in_temp_path, out_temp_path, safe_serialization=True)
-        # merge_fsdp_shards_on_gpu(in_temp_path, out_temp_path)
-        logger.info(f"Loading FP32 model...")
-        for f in origin_files:
-            shutil.copy(os.path.join(origin_path, f), os.path.join(out_temp_path, f))
-        model = transformers.AutoModelForCausalLM.from_pretrained(out_temp_path, torch_dtype=torch.bfloat16, device_map="auto")
-        logger.info(f"Saving BF16 model...")
-        model.save_pretrained(out_temp_path)
-        del model
-        logger.info(f"Removing FP32 model file...")
-        os.remove(os.path.join(out_temp_path, "model.safetensors"))
-        logger.info(f"Uploading HF model from {out_temp_path} to {out_url}...")
-        if USING_MANAGED_SERVICE_IDENTITY:
-            ret = os.system(f'AZCOPY_AUTO_LOGIN_TYPE=MSI azcopy copy "{out_temp_path}" "{out_url}" --recursive')
-        else:
-            ret = os.system(f'azcopy copy "{out_temp_path}" "{out_url}{az_container_sas}" --recursive')
-        if ret != 0:
-            raise RuntimeError(f"Failed to upload HF model from {out_temp_path} to {out_url}")
-        
-        logger.info(f"Removing temporary files...")
-        shutil.rmtree(in_temp_path)
-        shutil.rmtree(out_temp_path)
-        logger.info(f"All done!")
+            logger.info(f"Downloading checkpoint-{ckpt} from {in_url} to {in_temp_path}...")
+            while not check_az_storage_files_integrity(in_mount_path, folder_sizes[model_name]):
+                logger.warning(f"Checkpoint-{ckpt} not ready at {in_mount_path}, will check again after 20min...")
+                time.sleep(1200)
+            if USING_MANAGED_SERVICE_IDENTITY:
+                ret = os.system(f'AZCOPY_AUTO_LOGIN_TYPE=MSI azcopy copy "{in_url}" "{in_temp_path}" --recursive')
+            else:
+                ret = os.system(f'azcopy copy "{in_url}{az_container_sas}" "{in_temp_path}" --recursive')
+
+            in_temp_path = os.path.join(in_temp_path, "pytorch_model_fsdp_0")
+            logger.info(f"Converting FSDP model from {in_temp_path} to HF format at {out_temp_path}...")
+            merge_fsdp_weights(in_temp_path, out_temp_path, safe_serialization=True)
+            # merge_fsdp_shards_on_gpu(in_temp_path, out_temp_path)
+            logger.info(f"Loading FP32 model...")
+            for f in origin_files:
+                shutil.copy(os.path.join(origin_path, f), os.path.join(out_temp_path, f))
+            model = transformers.AutoModelForCausalLM.from_pretrained(out_temp_path, torch_dtype=torch.bfloat16, device_map="auto")
+            logger.info(f"Saving BF16 model...")
+            model.save_pretrained(out_temp_path)
+            del model
+            # logger.info(f"Removing FP32 model file...")
+            # os.remove(os.path.join(out_temp_path, "model.safetensors"))
+            logger.info(f"Uploading HF model from {out_temp_path} to {out_url}...")
+            if USING_MANAGED_SERVICE_IDENTITY:
+                ret = os.system(f'AZCOPY_AUTO_LOGIN_TYPE=MSI azcopy copy "{out_temp_path}" "{out_url}" --recursive')
+            else:
+                ret = os.system(f'azcopy copy "{out_temp_path}" "{out_url}{az_container_sas}" --recursive')
+            if ret != 0:
+                raise RuntimeError(f"Failed to upload HF model from {out_temp_path} to {out_url}")
+            
+            logger.info(f"Removing temporary files...")
+            shutil.rmtree(in_temp_path)
+            shutil.rmtree(out_temp_path)
+            logger.info(f"All done!")
